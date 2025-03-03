@@ -1,0 +1,13 @@
+[package]
+name = "nist-drbg-rs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+keywords = ["drbg", "csprng", "nist"]
+categories = ["cryptography"]
+authors = [
+    "Sam Leonard <tritoke@protonmail.com>",
+]
+description = "Implementation of NIST SP 800-90A Rev. 1 for Deterministic Random Bit Generators"
+
+[dependencies]
