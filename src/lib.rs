@@ -22,10 +22,10 @@ pub enum SeedError {
 pub trait Drbg: Sized {
     fn seed(
         entropy: &[u8],
-        nonce: Option(&[u8]),
-        personalization_string: Option(&[u8]),
-        security_strength: Option(u8),
+        nonce: Option<&[u8]>,
+        personalization_string: Option<&[u8]>,
+        security_strength: Option<u8>,
     ) -> Result<Self, SeedError>;
-    fn reseed(&mut self, entropy: &[u8], additional_input: Option(&[u8])) -> Result<(), SeedError>;
-    fn random_bytes(&mut self, buf: &mut [u8], additional_input: Option(&[u8]));
+    fn reseed(&mut self, entropy: &[u8], additional_input: Option<&[u8]>) -> Result<(), SeedError>;
+    fn random_bytes(&mut self, buf: &mut [u8], additional_input: Option<&[u8]>);
 }
