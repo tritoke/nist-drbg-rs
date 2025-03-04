@@ -2,6 +2,12 @@
 
 use core::marker::Sized;
 
+#[cfg(any(feature = "sha1", feature = "sha2"))]
+pub mod hash;
+
+#[cfg(any(feature = "sha1", feature = "sha2"))]
+pub use hash::*;
+
 pub enum SeedError {
     InsufficientEntropy,
 }
