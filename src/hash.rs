@@ -45,15 +45,6 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
 }
 
 impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEEDLEN, HSSS> {
-    fn seed(
-        _entropy: &[u8],
-        _nonce: Option<&[u8]>,
-        _personalization_string: Option<&[u8]>,
-        _security_strength: Option<u8>,
-    ) -> Result<Self, crate::SeedError> {
-        todo!()
-    }
-
     fn reseed(
         &mut self,
         _entropy: &[u8],
