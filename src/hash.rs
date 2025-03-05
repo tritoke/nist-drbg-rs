@@ -1,6 +1,6 @@
 use core::{error::Error, fmt::Display, marker::PhantomData};
 
-use digest::Digest;
+use digest::{Digest, OutputSizeUser};
 
 use crate::Drbg;
 
@@ -50,40 +50,60 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
         // self.constant = hash_df(0x00 | V, SEEDLEN_BYTES)
         // self.reseed_counter = 1
     }
+}
 
-    /// Auxiliary function defined in 10.3.1
-    fn hash_df<H: Digest>(seed_material: &[&[u8]]) -> Result<&[u8], LengthError> {
-        // For the usage, we only ever ask for SEEDLEN_BYTES
-        const HASH_DF_LEN = (SEEDLEN_BYTES + H::output_size() - 1) / H::output_size();
+#[derive(Debug)]
+pub struct LengthError {
+    max_size: usize,
+    requested_size: usize,
+}
 
-        // This is gonna be an issue with constants isn't it...
-        let mut tmp: [u8; HASH_DF_LEN * H::output_size()] = [0; HASH_DF_LEN * H::output_size()];
-        let mut hash_output: [u8; H::output_size()];
-        let index = 0;
-
-        // For the hash below we want to feed 8*byte_count as a slice of u8
-        byte_count_array: [u8; 4] = (byte_count * 8).to_le_bytes()
-
-        // Set an 8-bit counter to one to len
-        for for counter in 1..=HASH_DF_LEN {
-            // hash_output = Hash(counter || (byte_count * 8) || seed_material)
-            let mut hasher = H::new();
-            hasher.update(&[counter]); // counter as a u8 byte
-            hasher.update(&byte_count_array); // number of bits as a 4 byte slice
-            for block in seed_material {
-                hasher.update(block)
-            }
-            let hash_output = hasher.finalize();
-
-            // finally we append this hash output into tmp
-            // tmp = tmp || hash_output
-            tmp[index..index + H::output_size()].copy_from_slice(&hash_output);
-            index += H::output_size();
-        }
-
-        // The output of Hash_df is the leftmost bytes of tmp
-        return OK(&tmp[..byte_count]);
+impl Display for LengthError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "Requested size of {} bytes exceeds maximum size of {} bytes",
+            self.requested_size, self.max_size,
+        )
     }
+}
+
+impl Error for LengthError {}
+
+/// Auxiliary function defined in 10.3.1
+fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), LengthError> {
+    let hashsz = <H as OutputSizeUser>::output_size();
+    let outsz = out.len();
+
+    if outsz > hashsz * 255 {
+        return Err(LengthError {
+            max_size: 255 * hashsz,
+            requested_size: outsz,
+        });
+    }
+
+    // Set an 8-bit counter to one to len
+    for counter in 1..=255 {
+        // hash_output = Hash(counter || (output_size_bytes * 8) || *seed_material)
+        let mut hasher = H::new_with_prefix([counter]);
+        hasher.update((u8::BITS * outsz as u32).to_le_bytes());
+        for block in seed_material {
+            hasher.update(block)
+        }
+        let hash_output = hasher.finalize();
+
+        // counter starts from 1 so offset to get the index
+        let lower = (counter as usize - 1) * hashsz;
+        let upper = counter as usize * hashsz;
+        if upper < out.len() {
+            out[lower..upper].copy_from_slice(&hash_output);
+        } else {
+            out[lower..].copy_from_slice(&hash_output[..outsz - lower]);
+            break;
+        }
+    }
+
+    Ok(())
 }
 
 impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEEDLEN, HSSS> {
