@@ -105,6 +105,39 @@ fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), See
     Ok(())
 }
 
+/// Auxiliary function defined in 10.1.1.5
+fn hashgen<H: Digest>(value: &mut [u8], out: &mut [u8]) {
+    let hashsz = <H as OutputSizeUser>::output_size();
+    let outsz = out.len();
+
+    // Number of hash blocks to request
+    let m = outsz.div_ceil(hashsz) as u8;
+
+    for i in 0..m {
+        // First we hash value to use as bytes
+        let mut hasher = H::new();
+        hasher.update(&value);
+        let hash_output = hasher.finalize();
+
+        // Increment the value by adding 1 to the first byte and
+        // propagating
+        let mut carry: bool = true;
+        for byte in value.iter_mut() {
+            (*byte, carry) = byte.overflowing_add(carry as u8);
+        }
+
+        // Compute W = W || Hash(value)
+        let lower = i as usize * hashsz;
+        let upper = (i + 1) as usize * hashsz;
+        if upper < out.len() {
+            out[lower..upper].copy_from_slice(&hash_output);
+        } else {
+            out[lower..].copy_from_slice(&hash_output[..outsz - lower]);
+            break;
+        }
+    }
+}
+
 impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEEDLEN, HSSS> {
     fn reseed(
         &mut self,
