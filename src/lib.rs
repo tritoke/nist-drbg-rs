@@ -10,6 +10,8 @@ pub use hash::*;
 
 pub enum SeedError {
     InsufficientEntropy,
+    LengthError,
+    CounterExhausted,
 }
 
 // NOTES:
@@ -27,5 +29,9 @@ pub enum SeedError {
 // again, additional_input are optional bytes to feeding into the generate function
 pub trait Drbg: Sized {
     fn reseed(&mut self, entropy: &[u8], additional_input: Option<&[u8]>) -> Result<(), SeedError>;
-    fn random_bytes(&mut self, buf: &mut [u8], additional_input: Option<&[u8]>);
+    fn random_bytes(
+        &mut self,
+        buf: &mut [u8],
+        additional_input: Option<&[u8]>,
+    ) -> Result<(), crate::SeedError>;
 }

@@ -31,6 +31,7 @@ pub enum SeedError {
         max_size: usize,
         requested_size: usize,
     },
+    CounterExhausted,
 }
 
 impl Display for SeedError {
@@ -40,6 +41,7 @@ impl Display for SeedError {
             SeedError::LengthError { max_size, requested_size } => {
                 write!(f, "Requested size of {requested_size} bytes exceeds maximum size of {max_size} bytes")
             },
+            SeedError::CounterExhausted => f.write_str("Counter has been exhaused, reseed")
         }
     }
 }
@@ -63,10 +65,68 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
             value,
             constant,
             reseed_counter: 1,
-            security_strength: u32::max(ssb as u32 * 8, HSSS),
-            prediction_resistance_flag: false, // ???
+            security_strength: u32::max(ssb as u32 * 8, HSSS), // I think we can remove this
+            prediction_resistance_flag: false,                 // ???
             _hasher: PhantomData,
         })
+    }
+}
+
+impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEEDLEN, HSSS> {
+    // Hash_DRBG reseed process
+    fn reseed(
+        &mut self,
+        entropy: &[u8],
+        additional_input: Option<&[u8]>,
+    ) -> Result<(), crate::SeedError> {
+        // We hash 0x01 || V || entropy || additional_input
+        let hash_input: &[&[u8]];
+        match additional_input {
+            Some(additional_input) => {
+                hash_input = &[&[0x01], &self.value, entropy, additional_input];
+            }
+            None => {
+                hash_input = &[&[0x01], &self.value, entropy];
+            }
+        }
+        // I'm doing something wrong here with error propagation
+        hash_df::<H>(hash_input, &mut self.value)?;
+        hash_df::<H>(&[&[0x00], &self.value], &mut self.constant)?;
+        self.reseed_counter = 1;
+
+        return Ok(());
+    }
+
+    fn random_bytes(
+        &mut self,
+        buf: &mut [u8],
+        additional_input: Option<&[u8]>,
+    ) -> Result<(), crate::SeedError> {
+        // TODO: find out what the reseed_interval is, we need access to it
+        if self.reseed_counter > 999 {
+            return Err(SeedError::CounterExhausted);
+        }
+
+        // deal with additional_input, a TODO as we need to compute
+        // (V + w) mod 2^seedlen which isn't totally trivial
+        match additional_input {
+            Some(additional_input) => {
+                // w = Hash(0x02 || V || additional_input)
+                // V = V + w mod 2^seedlen
+            }
+            None => {}
+        }
+
+        // Fill the buffer with bytes using hashgen and update V
+        hashgen(&mut self.value, buf);
+
+        // Modify the V valye
+        // H = Hash(0x03 || V)
+        // V = V + H + C + reseed_counter mod 2^seedlen
+
+        self.reseed_counter += 1;
+
+        return Ok(());
     }
 }
 
@@ -135,20 +195,6 @@ fn hashgen<H: Digest>(value: &mut [u8], out: &mut [u8]) {
             out[lower..].copy_from_slice(&hash_output[..outsz - lower]);
             break;
         }
-    }
-}
-
-impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEEDLEN, HSSS> {
-    fn reseed(
-        &mut self,
-        _entropy: &[u8],
-        _additional_input: Option<&[u8]>,
-    ) -> Result<(), crate::SeedError> {
-        todo!()
-    }
-
-    fn random_bytes(&mut self, _buf: &mut [u8], _additional_input: Option<&[u8]>) {
-        todo!()
     }
 }
 
