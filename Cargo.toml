@@ -11,7 +11,7 @@ authors = [
 description = "Implementation of NIST SP 800-90A Rev. 1 for Deterministic Random Bit Generators"
 
 [features]
-default-features = ["hash-drbg"]
+default = ["hash-drbg"]
 hash-drbg = ["sha1", "sha2"]
 sha1 = ["dep:sha1", "dep:digest"]
 sha2 = ["dep:sha2", "dep:digest"]
