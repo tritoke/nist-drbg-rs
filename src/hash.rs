@@ -25,65 +25,65 @@ pub struct HashDrbg<H: Digest, const SEEDLEN_BYTES: usize, const HSSS: u32> {
 }
 
 #[derive(Debug)]
-pub struct InsufficientEntropyError;
+pub enum SeedError {
+    InsufficientEntropy,
+    LengthError {
+        max_size: usize,
+        requested_size: usize,
+    },
+}
 
-impl Display for InsufficientEntropyError {
+impl Display for SeedError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Insufficient entropy was provided to meet the minimum supported entropy level of 112 bits")
+        match self {
+            SeedError::InsufficientEntropy => f.write_str("Insufficient entropy was provided to meet the minimum supported entropy level of 112 bits"),
+            SeedError::LengthError { max_size, requested_size } => {
+                write!(f, "Requested size of {requested_size} bytes exceeds maximum size of {max_size} bytes")
+            },
+        }
     }
 }
 
-impl Error for InsufficientEntropyError {}
+impl Error for SeedError {}
 
 impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS> {
     pub fn new(
-        _entropy: &[u8],
-        _nonce: &[u8], // Jack: the nonce can be up to 128 bits (half security bits)
-        _personalisation_string: &[u8], // this can have length zero, do we want empty slice or Option?
-    ) -> Result<Self, InsufficientEntropyError> {
-        todo!()
+        entropy: &[u8],
+        nonce: &[u8], // Jack: the nonce can be up to 128 bits (half security bits)
+        personalisation_string: &[u8], // this can have length zero, do we want empty slice or Option?
+    ) -> Result<Self, SeedError> {
+        let mut value = [0u8; SEEDLEN];
+        hash_df::<H>(&[entropy, nonce, personalisation_string], &mut value)?;
 
-        // Rough idea based on my reading of the spec
-        // NOTE: not sure the nicest was to concat slices in no_std
-        // seed_material = entropy || nonce || personalisation_string
-        // self.value = hash_df(seed_material, SEEDLEN_BYTES)
-        // self.constant = hash_df(0x00 | V, SEEDLEN_BYTES)
-        // self.reseed_counter = 1
+        let mut constant = [0u8; SEEDLEN];
+        hash_df::<H>(&[&[0x00], &value], &mut constant)?;
+
+        let ssb = entropy.len() + nonce.len() + personalisation_string.len();
+        Ok(Self {
+            value,
+            constant,
+            reseed_counter: 1,
+            security_strength: u32::max(ssb as u32 * 8, HSSS),
+            prediction_resistance_flag: false, // ???
+            _hasher: PhantomData,
+        })
     }
 }
-
-#[derive(Debug)]
-pub struct LengthError {
-    max_size: usize,
-    requested_size: usize,
-}
-
-impl Display for LengthError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "Requested size of {} bytes exceeds maximum size of {} bytes",
-            self.requested_size, self.max_size,
-        )
-    }
-}
-
-impl Error for LengthError {}
 
 /// Auxiliary function defined in 10.3.1
-fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), LengthError> {
+fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), SeedError> {
     let hashsz = <H as OutputSizeUser>::output_size();
     let outsz = out.len();
 
     if outsz > hashsz * 255 {
-        return Err(LengthError {
+        return Err(SeedError::LengthError {
             max_size: 255 * hashsz,
             requested_size: outsz,
         });
     }
 
     // Set an 8-bit counter to one to len
-    for counter in 1..=255 {
+    for counter in 1..=outsz.div_ceil(hashsz) as u8 {
         // hash_output = Hash(counter || (output_size_bytes * 8) || *seed_material)
         let mut hasher = H::new_with_prefix([counter]);
         hasher.update((u8::BITS * outsz as u32).to_le_bytes());
@@ -99,7 +99,6 @@ fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), Len
             out[lower..upper].copy_from_slice(&hash_output);
         } else {
             out[lower..].copy_from_slice(&hash_output[..outsz - lower]);
-            break;
         }
     }
 
