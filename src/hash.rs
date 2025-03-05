@@ -53,43 +53,35 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
 
     /// Auxiliary function defined in 10.3.1
     fn hash_df<H: Digest>(seed_material: &[&[u8]], byte_count: u32) -> Result<&[u8], LengthError> {
-        todo!()
-        // Compute the length, this needs to know the output size of
-        // the hash function which im sure is available
-        hash_output_len: u32 = 32; // This is wrong!
-
         // len = ceil(byte_count / hash_output_len)
-        len: u32 = (byte_count + hash_output_len - 1) / hash_output_len;
+        len: u32 = (byte_count + H::output_size() - 1) / H::output_size();
         if len > 255 {
             return Err; // len <= 255
         }
 
-        // tmp should be null to begin with but will be extended...
-        // not sure the nicest as to do this in no_std
-        // The idea is we will generate len * hash_output_len bytes
-        // and we know this now, so I guess we can preallocate?
-        tmp: &[u8] = &[];
+        // This is gonna be an issue with constants isn't it...
+        let mut tmp: [u8; len * H::output_size()] = [0; len * H::output_size()];
+        let mut hash_output: [u8; H::output_size()];
+        let index = 0;
 
         // For the hash below we want to feed 8*byte_count as a slice of u8
         byte_count_array: [u8; 4] = (byte_count * 8).to_le_bytes()
 
         // Set an 8-bit counter to one to len
         for for counter in 1..=len {
-            // We now want to append hash_output_len to tmp
-
-            // Here we compute the hash over counter as a u8, the number of output bits
-            // as a u32 and then the seed material passed into the function
-            // hash_output = Hash(counter || (byte_count * 8) as u32 || _seed_material)
+            // hash_output = Hash(counter || (byte_count * 8) || seed_material)
             let mut hasher = H::new();
             hasher.update(&[counter]); // counter as a u8 byte
             hasher.update(&byte_count_array); // number of bits as a 4 byte slice
             for block in seed_material {
                 hasher.update(block)
             }
-            hasher.finalize();
+            let hash_output = hasher.finalize();
 
             // finally we append this hash output into tmp
             // tmp = tmp || hash_output
+            tmp[index..index + H::output_size()].copy_from_slice(&hash_output);
+            index += H::output_size();
         }
 
         // The output of Hash_df is the leftmost bytes of tmp
