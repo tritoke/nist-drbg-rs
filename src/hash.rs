@@ -52,9 +52,8 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
     }
 
     /// Auxiliary function defined in 10.3.1
-    fn hash_df(_seed_material: &[u8], byte_count: u32) -> Result<&[u8], LengthError> {
+    fn hash_df<H: Digest>(seed_material: &[&[u8]], byte_count: u32) -> Result<&[u8], LengthError> {
         todo!()
-
         // Compute the length, this needs to know the output size of
         // the hash function which im sure is available
         hash_output_len: u32 = 32; // This is wrong!
@@ -71,14 +70,23 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
         // and we know this now, so I guess we can preallocate?
         tmp: &[u8] = &[];
 
+        // For the hash below we want to feed 8*byte_count as a slice of u8
+        byte_count_array: [u8; 4] = (byte_count * 8).to_le_bytes()
+
         // Set an 8-bit counter to one to len
         for for counter in 1..=len {
             // We now want to append hash_output_len to tmp
-            hash_output: mut &[u8]; // no idea what this should be type wise...
 
             // Here we compute the hash over counter as a u8, the number of output bits
             // as a u32 and then the seed material passed into the function
             // hash_output = Hash(counter || (byte_count * 8) as u32 || _seed_material)
+            let mut hasher = H::new();
+            hasher.update(&[counter]); // counter as a u8 byte
+            hasher.update(&byte_count_array); // number of bits as a 4 byte slice
+            for block in seed_material {
+                hasher.update(block)
+            }
+            hasher.finalize();
 
             // finally we append this hash output into tmp
             // tmp = tmp || hash_output
