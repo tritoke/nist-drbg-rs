@@ -1,58 +1,45 @@
-use core::{error::Error, fmt::Display, marker::PhantomData};
+use core::marker::PhantomData;
 
 use digest::{Digest, OutputSizeUser};
 
-use crate::Drbg;
+use crate::{Drbg, SeedError};
 
-// HSSS is the highest supported security strength in bits
-#[allow(dead_code)]
-pub struct HashDrbg<H: Digest, const SEEDLEN_BYTES: usize, const HSSS: u32> {
+/// What is the maximum number of calls to Hash_DRBG before the DRBG must be reseeded?
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
+pub const MAX_RESEED_INTERVAL: u64 = 1 << 48;
+
+/// What is the recommended number of calls to Hash_DRBG before the DRBG must be reseeded?
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B1
+pub const NIST_RESEED_INTERVAL: u64 = 100_000;
+
+pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
     // V - Value of `seedlen` bits
-    value: [u8; SEEDLEN_BYTES],
+    value: [u8; SEEDLEN],
 
     // C - Constant of `seedlen` bits
-    constant: [u8; SEEDLEN_BYTES],
+    constant: [u8; SEEDLEN],
 
     // the number of requests for bits received since the last (re)seeding
     reseed_counter: u64,
 
+    // Currently unused:
     // admin bits - not sure about these right now but the standard shows them
-    // Jack: NIST doc says security_strength is optional for Hash_DRBG as it is unused.
-    security_strength: u32,           // ?? ig
-    prediction_resistance_flag: bool, // is this drbg prediction resistant?
+    _prediction_resistance_flag: bool, // is this drbg prediction resistant?
 
     _hasher: PhantomData<H>,
 }
 
-#[derive(Debug)]
-pub enum SeedError {
-    InsufficientEntropy,
-    LengthError {
-        max_size: usize,
-        requested_size: usize,
-    },
-    CounterExhausted,
-}
-
-impl Display for SeedError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            SeedError::InsufficientEntropy => f.write_str("Insufficient entropy was provided to meet the minimum supported entropy level of 112 bits"),
-            SeedError::LengthError { max_size, requested_size } => {
-                write!(f, "Requested size of {requested_size} bytes exceeds maximum size of {max_size} bytes")
-            },
-            SeedError::CounterExhausted => f.write_str("Counter has been exhaused, reseed")
-        }
-    }
-}
-
-impl Error for SeedError {}
-
-impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS> {
+impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
     pub fn new(
         entropy: &[u8],
         nonce: &[u8], // Jack: the nonce can be up to 128 bits (half security bits)
+        // Sam: should we not check for this and raise an error?
         personalisation_string: &[u8], // this can have length zero, do we want empty slice or Option?
+                                       // Sam: IMO its simple enough to just give an empty byte
+                                       // slice, i.e. b"" or &[], also ideally this field should be
+                                       // encouraged 😂
     ) -> Result<Self, SeedError> {
         let mut value = [0u8; SEEDLEN];
         hash_df::<H>(&[entropy, nonce, personalisation_string], &mut value)?;
@@ -60,77 +47,68 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
         let mut constant = [0u8; SEEDLEN];
         hash_df::<H>(&[&[0x00], &value], &mut constant)?;
 
-        let ssb = entropy.len() + nonce.len() + personalisation_string.len();
         Ok(Self {
             value,
             constant,
             reseed_counter: 1,
-            security_strength: u32::max(ssb as u32 * 8, HSSS), // I think we can remove this
-            prediction_resistance_flag: false,                 // ???
+            _prediction_resistance_flag: false,
             _hasher: PhantomData,
         })
     }
-}
 
-impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEEDLEN, HSSS> {
-    // Hash_DRBG reseed process
-    fn reseed(
+    fn reseed_core(
         &mut self,
         entropy: &[u8],
         additional_input: Option<&[u8]>,
-    ) -> Result<(), crate::SeedError> {
+    ) -> Result<(), SeedError> {
         // We hash 0x01 || V || entropy || additional_input
-        let hash_input: &[&[u8]];
-        match additional_input {
-            Some(additional_input) => {
-                hash_input = &[&[0x01], &self.value, entropy, additional_input];
-            }
-            None => {
-                hash_input = &[&[0x01], &self.value, entropy];
-            }
-        }
-        // I'm doing something wrong here with error propagation
-        hash_df::<H>(hash_input, &mut self.value)?;
+        let mut seed = self.value;
+        hash_df::<H>(
+            &[
+                &[0x01],
+                &self.value,
+                entropy,
+                additional_input.unwrap_or(b""),
+            ],
+            &mut seed,
+        )?;
+        self.value = seed;
+
+        // We hash 0x00 || V
         hash_df::<H>(&[&[0x00], &self.value], &mut self.constant)?;
         self.reseed_counter = 1;
 
-        return Ok(());
+        Ok(())
     }
 
-    fn random_bytes(
+    fn random_bytes_core(
         &mut self,
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
-    ) -> Result<(), crate::SeedError> {
-        // TODO: find out what the reseed_interval is, we need access to it
-        if self.reseed_counter > 999 {
+    ) -> Result<(), SeedError> {
+        if self.reseed_counter > NIST_RESEED_INTERVAL {
             return Err(SeedError::CounterExhausted);
         }
 
-        // deal with additional_input, a TODO as we need to compute
-        // (V + w) mod 2^seedlen which isn't totally trivial
-        match additional_input {
-            Some(additional_input) => {
-                // w = Hash(0x02 || V || additional_input)
-                let mut hasher = H::new_with_prefix([0x02]);
-                hasher.update(&self.value);
-                hasher.update(&additional_input);
-                let w = hasher.finalize();
+        if let Some(additional_input) = additional_input {
+            // w = Hash(0x02 || V || additional_input)
+            let w = H::new_with_prefix([0x02])
+                .chain_update(self.value)
+                .chain_update(additional_input)
+                .finalize();
 
-                // V = V + w mod 2^seedlen
-                add_into(&mut self.value, &w);
-            }
-            None => {}
+            // V = V + w mod 2^seedlen
+            add_into(&mut self.value, &w);
         }
 
         // Fill the buffer with bytes using hashgen and update V
-        hashgen(&mut self.value, buf);
+        hashgen::<H, SEEDLEN>(self.value, buf);
 
         // Modify the V valye
         // H = Hash(0x03 || V)
-        let mut hasher = H::new_with_prefix([0x03]);
-        hasher.update(&self.value);
-        let h = hasher.finalize();
+        let h = H::new_with_prefix([0x03])
+            .chain_update(self.value)
+            .finalize();
 
         // V = V + H + C + reseed_counter mod 2^seedlen
         add_into(&mut self.value, &h);
@@ -139,12 +117,38 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEED
 
         self.reseed_counter += 1;
 
-        return Ok(());
+        Ok(())
+    }
+}
+
+impl<H: Digest, const SEEDLEN: usize> Drbg for HashDrbg<H, SEEDLEN> {
+    #[inline]
+    fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
+        self.reseed_core(entropy, None)
+    }
+
+    #[inline]
+    fn reseed_extra(&mut self, entropy: &[u8], additional_input: &[u8]) -> Result<(), SeedError> {
+        self.reseed_core(entropy, Some(additional_input))
+    }
+
+    #[inline]
+    fn random_bytes(&mut self, buf: &mut [u8]) -> Result<(), SeedError> {
+        self.random_bytes_core(buf, None)
+    }
+
+    #[inline]
+    fn random_bytes_extra(
+        &mut self,
+        buf: &mut [u8],
+        additional_input: &[u8],
+    ) -> Result<(), crate::SeedError> {
+        self.random_bytes_core(buf, Some(additional_input))
     }
 }
 
 #[inline]
-pub(super) const fn carrying_add(x: u8, y: u8, carry: bool) -> (u8, bool) {
+const fn carrying_add(x: u8, y: u8, carry: bool) -> (u8, bool) {
     let (a, b) = x.overflowing_add(y);
     let (c, d) = a.overflowing_add(carry as u8);
     (c, b | d)
@@ -153,8 +157,8 @@ pub(super) const fn carrying_add(x: u8, y: u8, carry: bool) -> (u8, bool) {
 fn add_into(a: &mut [u8], b: &[u8]) {
     let mut carry = false;
     for (i, ai) in a.iter_mut().enumerate() {
-        let bi = b.get(i).unwrap_or(0);
-        (*ai, carry) = carrying_add(*ai, bi, carry);
+        let bi = b.get(i).unwrap_or(&0);
+        (*ai, carry) = carrying_add(*ai, *bi, carry);
     }
 }
 
@@ -170,8 +174,10 @@ fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), See
         });
     }
 
-    // Set an 8-bit counter to one to len
-    for counter in 1..=outsz.div_ceil(hashsz) as u8 {
+    // Number of hash blocks to request
+    let m = outsz.div_ceil(hashsz) as u8;
+
+    for counter in 1..=m {
         // hash_output = Hash(counter || (output_size_bytes * 8) || *seed_material)
         let mut hasher = H::new_with_prefix([counter]);
         hasher.update((u8::BITS * outsz as u32).to_le_bytes());
@@ -193,57 +199,48 @@ fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), See
     Ok(())
 }
 
-/// Auxiliary function defined in 10.1.1.5
-fn hashgen<H: Digest>(value: &mut [u8], out: &mut [u8]) {
+/// Auxiliary function defined in 10.1.1.4
+fn hashgen<H: Digest, const SEEDLEN: usize>(value: [u8; SEEDLEN], out: &mut [u8]) {
     let hashsz = <H as OutputSizeUser>::output_size();
     let outsz = out.len();
+    let m = outsz.div_ceil(hashsz);
 
-    // Number of hash blocks to request
-    let m = outsz.div_ceil(hashsz) as u8;
-
+    let mut data = value;
     for i in 0..m {
-        // First we hash value to use as bytes
-        let mut hasher = H::new();
-        hasher.update(&value);
-        let hash_output = hasher.finalize();
+        // w = Hash(data)
+        let w = H::new_with_prefix(value).finalize();
 
-        // Increment the value by adding 1 to the first byte and
-        // propagating
-        let mut carry: bool = true;
-        for byte in value.iter_mut() {
-            (*byte, carry) = byte.overflowing_add(carry as u8);
-        }
+        // data = (data + 1) % 2^seedlen
+        add_into(&mut data, &[1]);
 
-        // Compute W = W || Hash(value)
-        let lower = i as usize * hashsz;
-        let upper = (i + 1) as usize * hashsz;
+        // W = W || w
+        let lower = i * hashsz;
+        let upper = (i + 1) * hashsz;
         if upper < out.len() {
-            out[lower..upper].copy_from_slice(&hash_output);
+            out[lower..upper].copy_from_slice(&w);
         } else {
-            out[lower..].copy_from_slice(&hash_output[..outsz - lower]);
-            break;
+            out[lower..].copy_from_slice(&w[..outsz - lower]);
         }
     }
 }
 
-// Highest support security levels from NIST 900-57: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf
 #[cfg(feature = "sha1")]
-pub type Sha1Drbg = HashDrbg<sha1::Sha1, { 440 / 8 }, 128>;
+pub type Sha1Drbg = HashDrbg<sha1::Sha1, { 440 / 8 }>;
 
 #[cfg(feature = "sha2")]
-pub type Sha224Drbg = super::HashDrbg<sha2::Sha224, { 440 / 8 }, 192>;
+pub type Sha224Drbg = super::HashDrbg<sha2::Sha224, { 440 / 8 }>;
 
 #[cfg(feature = "sha2")]
-pub type Sha512_224Drbg = super::HashDrbg<sha2::Sha512_224, { 440 / 8 }, 192>;
+pub type Sha512_224Drbg = super::HashDrbg<sha2::Sha512_224, { 440 / 8 }>;
 
 #[cfg(feature = "sha2")]
-pub type Sha256Drbg = super::HashDrbg<sha2::Sha256, { 440 / 8 }, 256>;
+pub type Sha256Drbg = super::HashDrbg<sha2::Sha256, { 440 / 8 }>;
 
 #[cfg(feature = "sha2")]
-pub type Sha512_256Drbg = super::HashDrbg<sha2::Sha512_256, { 440 / 8 }, 256>;
+pub type Sha512_256Drbg = super::HashDrbg<sha2::Sha512_256, { 440 / 8 }>;
 
 #[cfg(feature = "sha2")]
-pub type Sha384Drbg = super::HashDrbg<sha2::Sha384, { 888 / 8 }, 256>;
+pub type Sha384Drbg = super::HashDrbg<sha2::Sha384, { 888 / 8 }>;
 
 #[cfg(feature = "sha2")]
-pub type Sha512Drbg = super::HashDrbg<sha2::Sha512, { 888 / 8 }, 256>;
+pub type Sha512Drbg = super::HashDrbg<sha2::Sha512, { 888 / 8 }>;
