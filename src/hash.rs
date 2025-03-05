@@ -112,7 +112,13 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEED
         match additional_input {
             Some(additional_input) => {
                 // w = Hash(0x02 || V || additional_input)
+                let mut hasher = H::new_with_prefix([0x02]);
+                hasher.update(&self.value);
+                hasher.update(&additional_input);
+                let w = hasher.finalize();
+
                 // V = V + w mod 2^seedlen
+                add_into(&mut self.value, &w);
             }
             None => {}
         }
@@ -122,11 +128,33 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> Drbg for HashDrbg<H, SEED
 
         // Modify the V valye
         // H = Hash(0x03 || V)
+        let mut hasher = H::new_with_prefix([0x03]);
+        hasher.update(&self.value);
+        let h = hasher.finalize();
+
         // V = V + H + C + reseed_counter mod 2^seedlen
+        add_into(&mut self.value, &h);
+        add_into(&mut self.value, &self.constant);
+        add_into(&mut self.value, &self.reseed_counter.to_le_bytes()); // should this be a u64 or u32?
 
         self.reseed_counter += 1;
 
         return Ok(());
+    }
+}
+
+#[inline]
+pub(super) const fn carrying_add(x: u8, y: u8, carry: bool) -> (u8, bool) {
+    let (a, b) = x.overflowing_add(y);
+    let (c, d) = a.overflowing_add(carry as u8);
+    (c, b | d)
+}
+
+fn add_into(a: &mut [u8], b: &[u8]) {
+    let mut carry = false;
+    for (i, ai) in a.iter_mut().enumerate() {
+        let bi = b.get(i).unwrap_or(0);
+        (*ai, carry) = carrying_add(*ai, bi, carry);
     }
 }
 
