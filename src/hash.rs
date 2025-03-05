@@ -52,15 +52,12 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
     }
 
     /// Auxiliary function defined in 10.3.1
-    fn hash_df<H: Digest>(seed_material: &[&[u8]], byte_count: u32) -> Result<&[u8], LengthError> {
-        // len = ceil(byte_count / hash_output_len)
-        len: u32 = (byte_count + H::output_size() - 1) / H::output_size();
-        if len > 255 {
-            return Err; // len <= 255
-        }
+    fn hash_df<H: Digest>(seed_material: &[&[u8]]) -> Result<&[u8], LengthError> {
+        // For the usage, we only ever ask for SEEDLEN_BYTES
+        const HASH_DF_LEN = (SEEDLEN_BYTES + H::output_size() - 1) / H::output_size();
 
         // This is gonna be an issue with constants isn't it...
-        let mut tmp: [u8; len * H::output_size()] = [0; len * H::output_size()];
+        let mut tmp: [u8; HASH_DF_LEN * H::output_size()] = [0; HASH_DF_LEN * H::output_size()];
         let mut hash_output: [u8; H::output_size()];
         let index = 0;
 
@@ -68,7 +65,7 @@ impl<H: Digest, const SEEDLEN: usize, const HSSS: u32> HashDrbg<H, SEEDLEN, HSSS
         byte_count_array: [u8; 4] = (byte_count * 8).to_le_bytes()
 
         // Set an 8-bit counter to one to len
-        for for counter in 1..=len {
+        for for counter in 1..=HASH_DF_LEN {
             // hash_output = Hash(counter || (byte_count * 8) || seed_material)
             let mut hasher = H::new();
             hasher.update(&[counter]); // counter as a u8 byte
