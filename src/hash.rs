@@ -36,6 +36,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         entropy: &[u8],
         nonce: &[u8], // Jack: the nonce can be up to 128 bits (half security bits)
         // Sam: should we not check for this and raise an error?
+        // Jack: I don't know if it has a max size? Any longer is a waste, but not error worthy
         personalisation_string: &[u8], // this can have length zero, do we want empty slice or Option?
                                        // Sam: IMO its simple enough to just give an empty byte
                                        // slice, i.e. b"" or &[], also ideally this field should be
@@ -113,7 +114,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         // V = V + H + C + reseed_counter mod 2^seedlen
         add_into(&mut self.value, &h);
         add_into(&mut self.value, &self.constant);
-        add_into(&mut self.value, &self.reseed_counter.to_le_bytes()); // should this be a u64 or u32?
+        add_into(&mut self.value, &self.reseed_counter.to_be_bytes());
 
         self.reseed_counter += 1;
 
@@ -156,9 +157,12 @@ const fn carrying_add(x: u8, y: u8, carry: bool) -> (u8, bool) {
 
 fn add_into(a: &mut [u8], b: &[u8]) {
     let mut carry = false;
-    for (i, ai) in a.iter_mut().enumerate() {
-        let bi = b.get(i).unwrap_or(&0);
-        (*ai, carry) = carrying_add(*ai, *bi, carry);
+    let a_len = a.len();
+    let b_len = b.len();
+    for i in 1..=a_len {
+        let ai = &mut a[a_len - i];
+        let bi = b_len.checked_sub(i).map(|idx| b[idx]).unwrap_or(0);
+        (*ai, carry) = carrying_add(*ai, bi, carry);
     }
 }
 
@@ -176,11 +180,12 @@ fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), See
 
     // Number of hash blocks to request
     let m = outsz.div_ceil(hashsz) as u8;
+    let size_bytes = (u8::BITS * outsz as u32).to_be_bytes();
 
     for counter in 1..=m {
         // hash_output = Hash(counter || (output_size_bytes * 8) || *seed_material)
         let mut hasher = H::new_with_prefix([counter]);
-        hasher.update((u8::BITS * outsz as u32).to_le_bytes());
+        hasher.update(size_bytes);
         for block in seed_material {
             hasher.update(block)
         }
