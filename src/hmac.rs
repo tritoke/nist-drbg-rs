@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use digest::{generic_array::GenericArray, InnerInit, KeyInit};
+use digest::{generic_array::GenericArray, KeyInit};
 
 use hmac::{Hmac, Mac};
 
@@ -9,14 +9,14 @@ use crate::{Drbg, SeedError};
 /// What is the maximum number of calls to Hash_DRBG before the DRBG must be reseeded?
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
-pub const MAX_RESEED_INTERVAL: u64 = 1 << 48;
+pub const MAX_RESEED_INTERVAL_HMAC: u64 = 1 << 48;
 
 /// What is the recommended number of calls to Hash_DRBG before the DRBG must be reseeded?
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B1
-pub const NIST_RESEED_INTERVAL: u64 = 100_000;
+pub const NIST_RESEED_INTERVAL_HMAC: u64 = 100_000;
 
-pub struct HmacDrbg<H:  Mac + KeyInit + InnerInit> {
+pub struct HmacDrbg<H:  Mac + KeyInit > {
     // key - Value of `seedlen` bits
     key: GenericArray<u8, H::OutputSize>,
 
@@ -33,7 +33,7 @@ pub struct HmacDrbg<H:  Mac + KeyInit + InnerInit> {
     _hasher: PhantomData<H>,
 }
 
-impl<H: Mac + KeyInit + InnerInit> HmacDrbg<H> {
+impl<H: Mac + KeyInit > HmacDrbg<H> {
     pub fn new(
         entropy: &[u8],
         nonce: &[u8],
@@ -119,7 +119,7 @@ impl<H: Mac + KeyInit + InnerInit> HmacDrbg<H> {
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        if self.reseed_counter > NIST_RESEED_INTERVAL {
+        if self.reseed_counter > NIST_RESEED_INTERVAL_HMAC {
             return Err(SeedError::CounterExhausted);
         }
 
@@ -164,7 +164,7 @@ impl<H: Mac + KeyInit + InnerInit> HmacDrbg<H> {
     }
 }
 
-impl<H: Mac + KeyInit + InnerInit> Drbg for HmacDrbg<H> {
+impl<H: Mac + KeyInit > Drbg for HmacDrbg<H> {
     #[inline]
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
         self.reseed_core(entropy, None)
