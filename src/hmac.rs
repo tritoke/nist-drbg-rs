@@ -70,7 +70,7 @@ impl<H: Digest, const OUTLEN: usize> HmacDrbg<H, OUTLEN> {
         }
 
         // K = HMAC(K, V || 0x00 || provided_data)
-        let mut mac = Hmac::<H>::new_from_slice(&self.key);
+        mac = Hmac::<H>::new_from_slice(&self.key);
         mac.update(self.value);
         mac.update([0x01]);
         for block in provided_data {
