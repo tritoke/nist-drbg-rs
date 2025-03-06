@@ -1,12 +1,10 @@
 use core::marker::PhantomData;
 
-use digest::{generic_array::GenericArray, Digest, InnerInit, KeyInit};
+use digest::{generic_array::GenericArray, InnerInit, KeyInit};
 
 use hmac::{Hmac, Mac};
 
 use crate::{Drbg, SeedError};
-
-// Jack: we probably don't need OUTLEN as we can get it from Digest itself?
 
 pub struct HmacDrbg<H:  Mac + KeyInit + InnerInit> {
     // key - Value of `seedlen` bits
@@ -59,6 +57,7 @@ impl<H: Mac + KeyInit + InnerInit> HmacDrbg<H> {
     fn hmac_drbg_update(&mut self, provided_data: &[&[u8]])
     {
         // K = HMAC(K, V || 0x00 || provided_data)
+        // TODO: error handling for key
         let mut mac = <H as Mac>::new_from_slice(&self.key).unwrap();
         mac.update(&self.value);
         mac.update(&[0x00]);
@@ -76,7 +75,7 @@ impl<H: Mac + KeyInit + InnerInit> HmacDrbg<H> {
             return;
         }
 
-        // K = HMAC(K, V || 0x00 || provided_data)
+        // K = HMAC(K, V || 0x01 || provided_data)
         mac = <H as Mac>::new_from_slice(&self.key).unwrap();
         mac.update(&self.value);
         mac.update(&[0x01]);
