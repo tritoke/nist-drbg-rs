@@ -8,6 +8,12 @@ pub mod hash;
 #[cfg(any(feature = "sha1", feature = "sha2"))]
 pub use hash::*;
 
+#[cfg(any(feature = "hmac_sha1", feature = "hmac_sha2"))]
+pub mod hmac;
+
+#[cfg(any(feature = "hmac_sha1", feature = "hmac_sha2"))]
+pub use hmac::*;
+
 #[derive(Debug)]
 pub enum SeedError {
     InsufficientEntropy,

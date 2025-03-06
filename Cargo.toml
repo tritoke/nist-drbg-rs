@@ -11,13 +11,17 @@ authors = [
 description = "Implementation of NIST SP 800-90A Rev. 1 for Deterministic Random Bit Generators"
 
 [features]
-default = ["hash-drbg"]
+default = ["hash-drbg", "hmac-drbg"]
 hash-drbg = ["sha1", "sha2"]
 sha1 = ["dep:sha1", "dep:digest"]
 sha2 = ["dep:sha2", "dep:digest"]
+hmac-drbg = ["hmac_sha1", "hmac_sha2"]
+hmac_sha1 = ["dep:hmac", "dep:sha1", "dep:digest"]
+hmac_sha2 = ["dep:hmac", "dep:sha2", "dep:digest"]
 
 [dependencies]
 hex = "0.4.3"
 digest = { version = "0.10", optional = true }
 sha1 = { version = "0.10", default-features = false, optional = true }
 sha2 = { version = "0.10", default-features = false, optional = true }
+hmac = { version = "0.12", optional = true}
