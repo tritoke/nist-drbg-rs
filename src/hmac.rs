@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use digest::{Digest, OutputSizeUser};
+use digest::{generic_array::GenericArray, Digest, InnerInit, KeyInit};
 
 use hmac::{Hmac, Mac};
 
@@ -8,12 +8,12 @@ use crate::{Drbg, SeedError};
 
 // Jack: we probably don't need OUTLEN as we can get it from Digest itself?
 
-pub struct HmacDrbg<H: Digest, const OUTLEN: usize> {
+pub struct HmacDrbg<H:  Mac + KeyInit + InnerInit> {
     // key - Value of `seedlen` bits
-    key: [u8; OUTLEN],
+    key: GenericArray<u8, H::OutputSize>,
 
     // V - Value of `seedlen` bits
-    value: [u8; OUTLEN],
+    value: GenericArray<u8, H::OutputSize>,
 
     // the number of requests for bits received since the last (re)seeding
     reseed_counter: u64,
@@ -25,14 +25,22 @@ pub struct HmacDrbg<H: Digest, const OUTLEN: usize> {
     _hasher: PhantomData<H>,
 }
 
-impl<H: Digest, const OUTLEN: usize> HmacDrbg<H, OUTLEN> {
+impl<H: Mac + KeyInit + InnerInit> HmacDrbg<H> {
     pub fn new(
         entropy: &[u8],
         nonce: &[u8],
         personalisation_string: &[u8],
     ) -> Result<Self, SeedError> {
-        let key = [0u8; OUTLEN];
-        let value = [01u8; OUTLEN];
+        let mut key = GenericArray::<u8, H::OutputSize>::default();
+        let mut value = GenericArray::<u8, H::OutputSize>::default();
+
+        // Default key:   0x00 ... 0x00
+        // Default value: 0x01 ... 0x01
+        // TODO: is this really how to do this?!
+        for i in 0..key.as_slice().len() {
+            key[i] = 0x0;
+            value[i] = 0x1;
+        }
 
         // Create the object then update
         let mut hmac_drbg = Self{ 
@@ -43,53 +51,53 @@ impl<H: Digest, const OUTLEN: usize> HmacDrbg<H, OUTLEN> {
             _hasher: PhantomData,
         };
         hmac_drbg.hmac_drbg_update(&[entropy, nonce, personalisation_string]);
-        
         Ok(hmac_drbg)
         
     }
 
     // Auxiliary function in section 10.1.2.2
-    fn hmac_drbg_update(self, provided_data: &[&[u8]])
+    fn hmac_drbg_update(&mut self, provided_data: &[&[u8]])
     {
         // K = HMAC(K, V || 0x00 || provided_data)
-        let mut mac = Hmac::<H>::new_from_slice(&self.key);
-        mac.update(self.value);
-        mac.update([0x00]);
+        let mut mac = <H as Mac>::new_from_slice(&self.key).unwrap();
+        mac.update(&self.value);
+        mac.update(&[0x00]);
         for block in provided_data {
             mac.update(block);
         }
-        self.key = mac.finalize();
+        self.key = mac.finalize().into_bytes();
 
         // V = HMAC(K, V)
-        mac = Hmac::<H>::new_from_slice(self.key);
-        mac.update(self.value);
-        self.value = mac.finalize();
+        mac = <H as Mac>::new_from_slice(&self.key).unwrap();
+        mac.update(&self.value);
+        self.value = mac.finalize().into_bytes();
 
         if provided_data.len() == 0 {
             return;
         }
 
         // K = HMAC(K, V || 0x00 || provided_data)
-        mac = Hmac::<H>::new_from_slice(&self.key);
-        mac.update(self.value);
-        mac.update([0x01]);
+        mac = <H as Mac>::new_from_slice(&self.key).unwrap();
+        mac.update(&self.value);
+        mac.update(&[0x01]);
         for block in provided_data {
             mac.update(block);
         }
-        self.key = mac.finalize();
+        self.key = mac.finalize().into_bytes();
 
         // V = HMAC(K, V)
-        mac = Hmac::<H>::new_from_slice(self.key);
-        mac.update(self.value);
-        self.value = mac.finalize();
+        mac = <H as Mac>::new_from_slice(&self.key).unwrap();
+        mac.update(&self.value);
+        self.value = mac.finalize().into_bytes();
     }
 
     fn reseed_core(
         &mut self,
         entropy: &[u8],
         additional_input: Option<&[u8]>,
-    ) -> Result<(), SeedError> {
+    ) {
         todo!()
+       
     }
 
     fn random_bytes_core(
@@ -102,52 +110,23 @@ impl<H: Digest, const OUTLEN: usize> HmacDrbg<H, OUTLEN> {
 }
 
 
-
-impl<H: Digest, const SEEDLEN: usize> Drbg for HmacDrbg<H, SEEDLEN> {
-    #[inline]
-    fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
-        self.reseed_core(entropy, None)
-    }
-
-    #[inline]
-    fn reseed_extra(&mut self, entropy: &[u8], additional_input: &[u8]) -> Result<(), SeedError> {
-        self.reseed_core(entropy, Some(additional_input))
-    }
-
-    #[inline]
-    fn random_bytes(&mut self, buf: &mut [u8]) -> Result<(), SeedError> {
-        self.random_bytes_core(buf, None)
-    }
-
-    #[inline]
-    fn random_bytes_extra(
-        &mut self,
-        buf: &mut [u8],
-        additional_input: &[u8],
-    ) -> Result<(), crate::SeedError> {
-        self.random_bytes_core(buf, Some(additional_input))
-    }
-}
-
-
-
 #[cfg(feature = "hmac_sha1")]
-pub type Sha1Drbg = super::HmacDrbg<sha1::Sha1, { 160 / 8 }>;
+pub type Sha1Drbg = super::HmacDrbg<Hmac<sha1::Sha1>>;
 
 #[cfg(feature = "hmac_sha2")]
-pub type Sha224Drbg = super::HmacDrbg<sha2::Sha224, { 224 / 8 }>;
+pub type Sha224Drbg = super::HmacDrbg<Hmac<sha2::Sha224>>;
 
 #[cfg(feature = "hmac_sha2")]
-pub type Sha512_224Drbg = super::HmacDrbg<sha2::Sha512_224, { 224 / 8 }>;
+pub type Sha512_224Drbg = super::HmacDrbg<Hmac<sha2::Sha512_224>>;
 
 #[cfg(feature = "hmac_sha2")]
-pub type Sha256Drbg = super::HmacDrbg<sha2::Sha256, { 256 / 8 }>;
+pub type Sha256Drbg = super::HmacDrbg<Hmac<sha2::Sha256>>;
 
 #[cfg(feature = "hmac_sha2")]
-pub type Sha512_256Drbg = super::HmacDrbg<sha2::Sha512_256, { 256 / 8 }>;
+pub type Sha512_256Drbg = super::HmacDrbg<Hmac<sha2::Sha512_256>>;
 
 #[cfg(feature = "hmac_sha2")]
-pub type Sha384Drbg = super::HmacDrbg<sha2::Sha384, { 384 / 8 }>;
+pub type Sha384Drbg = super::HmacDrbg<Hmac<sha2::Sha384>>;
 
 #[cfg(feature = "hmac_sha2")]
-pub type Sha512Drbg = super::HmacDrbg<sha2::Sha512, { 512 / 8 }>;
+pub type Sha512Drbg = super::HmacDrbg<Hmac<sha2::Sha512>>;
