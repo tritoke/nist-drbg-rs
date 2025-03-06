@@ -4,6 +4,8 @@ use digest::{Digest, OutputSizeUser};
 
 use crate::{Drbg, SeedError};
 
+use hex;
+
 /// What is the maximum number of calls to Hash_DRBG before the DRBG must be reseeded?
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
@@ -91,6 +93,12 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
             return Err(SeedError::CounterExhausted);
         }
 
+        println!("Calling random_bytes_core...");    
+        println!("value = {:?}", hex::encode(&self.value));
+        println!("constant = {:?}", hex::encode(&self.constant));
+        println!("reseed_counter = {:?}", self.reseed_counter);
+
+
         if let Some(additional_input) = additional_input {
             // w = Hash(0x02 || V || additional_input)
             let w = H::new_with_prefix([0x02])
@@ -105,7 +113,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         // Fill the buffer with bytes using hashgen and update V
         hashgen::<H, SEEDLEN>(self.value, buf);
 
-        // Modify the V valye
+        // Modify the V value
         // H = Hash(0x03 || V)
         let h = H::new_with_prefix([0x03])
             .chain_update(self.value)
@@ -117,6 +125,11 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         add_into(&mut self.value, &self.reseed_counter.to_be_bytes());
 
         self.reseed_counter += 1;
+
+        println!("finishing random_bytes_core...");    
+        println!("value = {:?}", hex::encode(&self.value));
+        println!("constant = {:?}", hex::encode(&self.constant));
+        println!("reseed_counter = {:?}", self.reseed_counter);
 
         Ok(())
     }
@@ -180,12 +193,12 @@ fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), See
 
     // Number of hash blocks to request
     let m = outsz.div_ceil(hashsz) as u8;
-    let size_bytes = (u8::BITS * outsz as u32).to_be_bytes();
+    let num_bits_to_return = (u8::BITS * outsz as u32).to_be_bytes();
 
     for counter in 1..=m {
         // hash_output = Hash(counter || (output_size_bytes * 8) || *seed_material)
         let mut hasher = H::new_with_prefix([counter]);
-        hasher.update(size_bytes);
+        hasher.update(num_bits_to_return);
         for block in seed_material {
             hasher.update(block)
         }
@@ -209,11 +222,10 @@ fn hashgen<H: Digest, const SEEDLEN: usize>(value: [u8; SEEDLEN], out: &mut [u8]
     let hashsz = <H as OutputSizeUser>::output_size();
     let outsz = out.len();
     let m = outsz.div_ceil(hashsz);
-
     let mut data = value;
     for i in 0..m {
         // w = Hash(data)
-        let w = H::new_with_prefix(value).finalize();
+        let w = H::new_with_prefix(data).finalize();
 
         // data = (data + 1) % 2^seedlen
         add_into(&mut data, &[1]);
