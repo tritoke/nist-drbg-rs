@@ -4,8 +4,6 @@ use digest::{Digest, OutputSizeUser};
 
 use crate::{Drbg, SeedError};
 
-use hex;
-
 /// What is the maximum number of calls to Hash_DRBG before the DRBG must be reseeded?
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
@@ -93,12 +91,6 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
             return Err(SeedError::CounterExhausted);
         }
 
-        println!("Calling random_bytes_core...");    
-        println!("value = {:?}", hex::encode(&self.value));
-        println!("constant = {:?}", hex::encode(&self.constant));
-        println!("reseed_counter = {:?}", self.reseed_counter);
-
-
         if let Some(additional_input) = additional_input {
             // w = Hash(0x02 || V || additional_input)
             let w = H::new_with_prefix([0x02])
@@ -125,11 +117,6 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         add_into(&mut self.value, &self.reseed_counter.to_be_bytes());
 
         self.reseed_counter += 1;
-
-        println!("finishing random_bytes_core...");    
-        println!("value = {:?}", hex::encode(&self.value));
-        println!("constant = {:?}", hex::encode(&self.constant));
-        println!("reseed_counter = {:?}", self.reseed_counter);
 
         Ok(())
     }
