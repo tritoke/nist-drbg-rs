@@ -12,11 +12,17 @@ pub mod hash;
 #[cfg(any(feature = "sha1", feature = "sha2"))]
 pub use hash::*;
 
-#[cfg(any(feature = "hmac_sha1", feature = "hmac_sha2"))]
+#[cfg(any(feature = "hmac-sha1", feature = "hmac-sha2"))]
 pub mod hmac;
 
-#[cfg(any(feature = "hmac_sha1", feature = "hmac_sha2"))]
+#[cfg(any(feature = "hmac-sha1", feature = "hmac-sha2"))]
 pub use hmac::*;
+
+#[cfg(feature = "aes-ctr")]
+pub mod ctr;
+
+#[cfg(feature = "aes-ctr")]
+pub use ctr::*;
 
 #[derive(Debug)]
 pub enum SeedError {
