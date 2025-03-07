@@ -38,13 +38,13 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         nonce: &[u8], // Jack: the nonce can be up to 128 bits (half security bits)
         // Sam: should we not check for this and raise an error?
         // Jack: I don't know if it has a max size? Any longer is a waste, but not error worthy
-        personalisation_string: &[u8], // this can have length zero, do we want empty slice or Option?
+        personalization_string: &[u8], // this can have length zero, do we want empty slice or Option?
                                        // Sam: IMO its simple enough to just give an empty byte
                                        // slice, i.e. b"" or &[], also ideally this field should be
                                        // encouraged 😂
     ) -> Result<Self, SeedError> {
         let mut value = [0u8; SEEDLEN];
-        hash_df::<H>(&[entropy, nonce, personalisation_string], &mut value)?;
+        hash_df::<H>(&[entropy, nonce, personalization_string], &mut value)?;
 
         let mut constant = [0u8; SEEDLEN];
         hash_df::<H>(&[&[0x00], &value], &mut constant)?;

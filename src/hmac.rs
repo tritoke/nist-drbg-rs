@@ -37,7 +37,7 @@ impl<H: Mac + KeyInit> HmacDrbg<H> {
     pub fn new(
         entropy: &[u8],
         nonce: &[u8],
-        personalisation_string: &[u8],
+        personalization_string: &[u8],
     ) -> Result<Self, SeedError> {
         let mut key = GenericArray::<u8, H::OutputSize>::default();
         let mut value = GenericArray::<u8, H::OutputSize>::default();
@@ -57,7 +57,7 @@ impl<H: Mac + KeyInit> HmacDrbg<H> {
             _prediction_resistance_flag: false,
             _hasher: PhantomData,
         };
-        hmac_drbg.hmac_drbg_update(&[entropy, nonce, personalisation_string]);
+        hmac_drbg.hmac_drbg_update(&[entropy, nonce, personalization_string]);
         Ok(hmac_drbg)
     }
 

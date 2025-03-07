@@ -3,7 +3,7 @@ use aes::{Aes128, Aes192, Aes256};
 
 use crate::{Drbg, SeedError};
 
-pub struct CtrDrbg<C: BlockCipher + KeyInit> {
+pub struct CtrDrbg<C: BlockCipher + KeyInit, const SEEDLEN: usize> {
     // key - Value of `seedlen` bits
     key: GenericArray<u8, C::KeySize>,
 
@@ -21,41 +21,62 @@ pub struct CtrDrbg<C: BlockCipher + KeyInit> {
     _prediction_resistance_flag: bool, // is this drbg prediction resistant?
 }
 
-impl<C: BlockCipher + KeyInit> CtrDrbg<C> {
+impl<C: BlockCipher + KeyInit, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
     pub fn new(
         entropy: &[u8],
         nonce: &[u8],
-        personalisation_string: &[u8],
+        personalization_string: &[u8],
         derivation_function: bool,
     ) -> Result<Self, SeedError> {
         let mut key = GenericArray::<u8, C::KeySize>::default();
         let mut value = GenericArray::<u8, C::BlockSize>::default();
+        let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
+
+        // Ensure the personalization string is not too long
+        if personalization_string.len() > SEEDLEN {
+            return Err(SeedError::LengthError {
+                max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
+                requested_size: personalization_string.len(),
+            });
+        }
 
         // When a derivation function is used then the entropy input is
-        // seed_material = entropy || nonce || personalisation_string
+        // seed_material = entropy || nonce || personalization_string
         // which is fed into a derivation function before being used
         // as the value to be processed by ctr_drbg_update
         if derivation_function {
-            // TODO: ensure that entropy || nonce || personalisation_string
+            // Ensure that entropy || nonce || personalization_string
             // as exactly length BlockSize + KeySize
-            let mut seed_material: [u8; 1];
-            ctr_df(&[entropy, nonce, personalisation_string], &seed_material);
+            if entropy.len() + nonce.len() + personalization_string.len() != SEEDLEN {
+                return Err(SeedError::LengthError {
+                    max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
+                    requested_size: entropy.len() + nonce.len() + personalization_string.len(),
+                });
+            }
+            // Compute the seed material from the derivation function and user supplied entropy
+            ctr_df::<C, SEEDLEN>(&[entropy, nonce, personalization_string], &mut seed_material[..]);
         }
-        // Otherwise seed_material = entropy ^ pad(personalisation_string)
+        // Otherwise seed_material = entropy ^ pad(personalization_string)
         else {
             if !nonce.is_empty() {
                 return Err(SeedError::CounterExhausted); // TODO this should be a new error, lazy
             }
-            // TODO assert that entropy has length BlockSize + KeySize and return an error if not
+            // Ensure that entropy has length SEEDLEN
+            if entropy.len() != SEEDLEN {
+                return Err(SeedError::LengthError {
+                    max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
+                    requested_size: entropy.len(),
+                });
+            }
 
-            // Now pad the personalization string
-            // TODO: is the best thing here to make something of the right length of all zeros
-            // then copy the personalization string into it?
-            // I guess seed_material can be made all zeros len seedlen, copy personalization into
-            // it and then XOR with entropy below
+            // The personalization string must be padded with zeros on the right to
+            // ensure it has length SEEDLEN. We can do this by copying personalization_string
+            // into seed_material
+            seed_material.copy_from_slice(personalization_string);
 
             // Finally compute
-            // seed_material = entropy ^ personalisation_string
+            // seed_material = entropy ^ personalization_string
+            xor_into(&mut seed_material[..], entropy);
         }
 
         // For instantiation, both key and value should be all zeros
@@ -75,13 +96,18 @@ impl<C: BlockCipher + KeyInit> CtrDrbg<C> {
             derivation_function,
             _prediction_resistance_flag: false,
         };
-        ctr_drbg.ctr_drbg_update(&[entropy, nonce, personalisation_string]);
+        ctr_drbg.ctr_drbg_update(&[entropy, nonce, personalization_string]);
         Ok(ctr_drbg)
     }
 
     // Auxiliary function in section 10.1.2.2
     fn ctr_drbg_update(&mut self, provided_data: &[&[u8]]) {
-        todo!()
+
+        // Buffer to fill with update bytes
+        let mut tmp: [u8; SEEDLEN] = [0; SEEDLEN];
+
+        // TODO
+        // xor_into(tmp, )
     }
 
     fn reseed_core(
@@ -101,14 +127,35 @@ impl<C: BlockCipher + KeyInit> CtrDrbg<C> {
     }
 }
 
-// Aux function in 10.3.2
-// we really want to return this: [u8; C:BlockSize + C:KeySize] or should
-// we include this into the input like with hash_df
-fn ctr_df<C: BlockCipher + KeyInit>(seed_material: &[&[u8]], out: &mut [u8]) {
-    todo!()
+/// Aux function in 10.3.2
+/// we really want to return this: [u8; C:BlockSize + C:KeySize] or should
+/// we include this into the input like with hash_df
+fn ctr_df<C: BlockCipher + KeyInit, const SEEDLEN: usize>(seed_material: &[&[u8]], out: &mut [u8]) {
+    // TODO: max len of out should be 512 bits
+
+    // Compute the length of the input and output as four bytes big endian
+    let input_len: usize = seed_material.iter().map(|block| block.len()).sum();
+    let input_len_bytes = (input_len as u32).to_be_bytes();
+    let output_len_bytes = (out.len() as u32).to_be_bytes();
+
+    // Now we need the value S = L || N || input || 0x80 || 0x00 ... 0x00
+    // where we only pad with zeros to ensure S has length SEEDLEN
+    if (4 + 4 + input_len + 1) > SEEDLEN {
+        // This should be an error, i think? Unless we know this is never true
+        todo!()
+    }
+    todo!();
 }
 
-impl<C: BlockCipher + KeyInit> Drbg for CtrDrbg<C> {
+/// Helper function which computes A = A XOR B
+fn xor_into(a: &mut [u8], b: &[u8]) {
+    // TODO assert a, b are the same length, or pad with zeros?
+    for i in 0..a.len() {
+        a[i] = a[i] ^ b[i];
+    }
+}
+
+impl<C: BlockCipher + KeyInit, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {
     #[inline]
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
         self.reseed_core(entropy, None)
@@ -134,11 +181,12 @@ impl<C: BlockCipher + KeyInit> Drbg for CtrDrbg<C> {
     }
 }
 
+// SEEDLEN = BlockSize + KeySize
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr128Drbg = super::CtrDrbg<Aes128>;
+pub type AesCtr128Drbg = super::CtrDrbg<Aes128, { 16 + 16 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr192Drbg = super::CtrDrbg<Aes192>;
+pub type AesCtr192Drbg = super::CtrDrbg<Aes192, { 24 + 16 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr256Drbg = super::CtrDrbg<Aes256>;
+pub type AesCtr256Drbg = super::CtrDrbg<Aes256, { 32 + 16 }>;
