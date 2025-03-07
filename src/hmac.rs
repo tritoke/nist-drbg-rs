@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use digest::{generic_array::GenericArray, KeyInit};
+use digest::{KeyInit, generic_array::GenericArray};
 
 use hmac::{Hmac, Mac};
 
@@ -16,7 +16,7 @@ pub const MAX_RESEED_INTERVAL_HMAC: u64 = 1 << 48;
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B1
 pub const NIST_RESEED_INTERVAL_HMAC: u64 = 100_000;
 
-pub struct HmacDrbg<H:  Mac + KeyInit > {
+pub struct HmacDrbg<H: Mac + KeyInit> {
     // key - Value of `seedlen` bits
     key: GenericArray<u8, H::OutputSize>,
 
@@ -33,7 +33,7 @@ pub struct HmacDrbg<H:  Mac + KeyInit > {
     _hasher: PhantomData<H>,
 }
 
-impl<H: Mac + KeyInit > HmacDrbg<H> {
+impl<H: Mac + KeyInit> HmacDrbg<H> {
     pub fn new(
         entropy: &[u8],
         nonce: &[u8],
@@ -44,14 +44,13 @@ impl<H: Mac + KeyInit > HmacDrbg<H> {
 
         // Default key:   0x00 ... 0x00
         // Default value: 0x01 ... 0x01
-        // TODO: is this really how to do this?!
-        for i in 0..key.as_slice().len() {
-            key[i] = 0x0;
-            value[i] = 0x1;
+        for (ki, vi) in key.iter_mut().zip(value.iter_mut()) {
+            *ki = 0u8; // Set key elements to 0x00
+            *vi = 1u8; // Set value elements to 0x01
         }
 
         // Create the object then update
-        let mut hmac_drbg = Self{ 
+        let mut hmac_drbg = Self {
             key,
             value,
             reseed_counter: 1,
@@ -60,12 +59,10 @@ impl<H: Mac + KeyInit > HmacDrbg<H> {
         };
         hmac_drbg.hmac_drbg_update(&[entropy, nonce, personalisation_string]);
         Ok(hmac_drbg)
-        
     }
 
     // Auxiliary function in section 10.1.2.2
-    fn hmac_drbg_update(&mut self, provided_data: &[&[u8]])
-    {
+    fn hmac_drbg_update(&mut self, provided_data: &[&[u8]]) {
         // TODO: handle key error?
         // K = HMAC(K, V || 0x00 || provided_data)
         let mut mac = <H as Mac>::new_from_slice(&self.key).unwrap();
@@ -81,7 +78,7 @@ impl<H: Mac + KeyInit > HmacDrbg<H> {
         mac.update(&self.value);
         self.value = mac.finalize().into_bytes();
 
-        if provided_data.len() == 0 {
+        if provided_data.is_empty() {
             return;
         }
 
@@ -107,10 +104,10 @@ impl<H: Mac + KeyInit > HmacDrbg<H> {
     ) -> Result<(), SeedError> {
         match additional_input {
             Some(data) => self.hmac_drbg_update(&[entropy, data]),
-            None =>  self.hmac_drbg_update(&[entropy])
+            None => self.hmac_drbg_update(&[entropy]),
         }
         self.reseed_counter = 1;
-        
+
         Ok(())
     }
 
@@ -125,22 +122,22 @@ impl<H: Mac + KeyInit > HmacDrbg<H> {
 
         // If additional_input is given, run HMAC_update
         if let Some(additional_input) = additional_input {
-           self.hmac_drbg_update(&[additional_input])
+            self.hmac_drbg_update(&[additional_input])
         }
 
-        // The random bytes we return are the output of repeatedly 
+        // The random bytes we return are the output of repeatedly
         // computing V = HMAC(K, V)
 
         let bufsz = buf.len();
         let hashsz = self.value.len(); // Seems like a dumb hack
         let m = bufsz.div_ceil(hashsz);
-        
+
         for i in 0..m {
             // Seems silly making this over and over
             let mut mac = <H as Mac>::new_from_slice(&self.key).unwrap();
             mac.update(&self.value);
             self.value = mac.finalize().into_bytes();
-        
+
             // buffer = buffer || HMAC(K, V)
             let lower = i * hashsz;
             let upper = (i + 1) * hashsz;
@@ -154,8 +151,7 @@ impl<H: Mac + KeyInit > HmacDrbg<H> {
         // TODO this is gross and should be handled in the first check
         if let Some(additional_input) = additional_input {
             self.hmac_drbg_update(&[additional_input])
-        }
-        else {
+        } else {
             self.hmac_drbg_update(&[])
         }
         self.reseed_counter += 1;
@@ -164,7 +160,7 @@ impl<H: Mac + KeyInit > HmacDrbg<H> {
     }
 }
 
-impl<H: Mac + KeyInit > Drbg for HmacDrbg<H> {
+impl<H: Mac + KeyInit> Drbg for HmacDrbg<H> {
     #[inline]
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
         self.reseed_core(entropy, None)
