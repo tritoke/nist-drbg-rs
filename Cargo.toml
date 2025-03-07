@@ -20,6 +20,7 @@ hmac-sha1 = ["dep:hmac", "dep:sha1", "dep:digest"]
 hmac-sha2 = ["dep:hmac", "dep:sha2", "dep:digest"]
 ctr-drbg = ["aes-ctr"]
 aes-ctr = ["dep:aes"]
+tdea-ctr = ["dep:des"]
 
 [dependencies]
 hex = "0.4.3"
@@ -28,3 +29,4 @@ sha1 = { version = "0.10", default-features = false, optional = true }
 sha2 = { version = "0.10", default-features = false, optional = true }
 hmac = { version = "0.12", optional = true, features = ["reset"] }
 aes = { version = "0.8", optional = true }
+des = { version = "0.8", optional = true }
