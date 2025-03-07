@@ -74,7 +74,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // The personalization string must be padded with zeros on the right to
             // ensure it has length SEEDLEN. We can do this by copying personalization_string
             // into seed_material
-            seed_material.copy_from_slice(personalization_string);
+            seed_material[..personalization_string.len()].copy_from_slice(personalization_string);
 
             // Finally compute
             // seed_material = entropy ^ pad(personalization_string)
@@ -85,7 +85,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // Default key:   0x00 ... 0x00 (Key length)
         // Default value: 0x00 ... 0x00 (Block length)
         for (ki, vi) in key.iter_mut().zip(value.iter_mut()) {
-            *ki = 0; // Set key and value elements to 0x00
+            *ki = 0u8; // Set key and value elements to 0x00
             *vi = 0;
         }
 
@@ -138,10 +138,11 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
         // TODO: I need to cast from slices back to the generic arrays, this is broken
         // set key as the left most bytes of tmp
-        self.key = tmp[..self.key.len()].try_into().unwrap();
+        let key_len = self.key.len();
+        self.key.copy_from_slice(&tmp[..key_len]);
 
         // set value as the rightmost bytes of tmp
-        self.value = tmp[self.key.len()..].try_into().unwrap();
+        self.value.copy_from_slice(&tmp[key_len..]);
 
     }
 
@@ -215,7 +216,10 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // pad additional input to length SEEDLEN
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
         match additional_input {
-            Some(v) => seed_material[..v.len()].copy_from_slice(v),
+            Some(v) => {
+                seed_material[..v.len()].copy_from_slice(v);
+                self.ctr_drbg_update(&seed_material);
+            },
             None => ()
         };
 
@@ -224,7 +228,8 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
         // Fill buf with random bytes by repeatedly appending encryptions
         let block_len = C::block_size();
-        let m = SEEDLEN.div_ceil(block_len);
+        let bufsz = buf.len();
+        let m = bufsz.div_ceil(block_len);
         for i in 0..m {
             // If ctr_len < blocklen
             // TODO what is ctr_len? The table just says 4 <= ctr_ln <= block_len
@@ -239,10 +244,11 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // buf = buf || Enc_K(V)
             let lower = i * block_len;
             let upper = (i + 1) * block_len;
-            if upper < SEEDLEN {
+
+            if upper < bufsz {
                 buf[lower..upper].copy_from_slice(&ct);
             } else {
-                buf[lower..].copy_from_slice(&ct[..SEEDLEN - lower]);
+                buf[lower..].copy_from_slice(&ct[..bufsz - lower]);
             }
         }
 

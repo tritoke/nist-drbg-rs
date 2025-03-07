@@ -186,23 +186,23 @@ impl<H: Mac + KeyInit> Drbg for HmacDrbg<H> {
     }
 }
 
-#[cfg(feature = "hmac_sha1")]
+#[cfg(feature = "hmac-sha1")]
 pub type HmacSha1Drbg = super::HmacDrbg<Hmac<sha1::Sha1>>;
 
-#[cfg(feature = "hmac_sha2")]
+#[cfg(feature = "hmac-sha2")]
 pub type HmacSha224Drbg = super::HmacDrbg<Hmac<sha2::Sha224>>;
 
-#[cfg(feature = "hmac_sha2")]
+#[cfg(feature = "hmac-sha2")]
 pub type HmacSha512_224Drbg = super::HmacDrbg<Hmac<sha2::Sha512_224>>;
 
-#[cfg(feature = "hmac_sha2")]
+#[cfg(feature = "hmac-sha2")]
 pub type HmacSha256Drbg = super::HmacDrbg<Hmac<sha2::Sha256>>;
 
-#[cfg(feature = "hmac_sha2")]
+#[cfg(feature = "hmac-sha2")]
 pub type HmacSha512_256Drbg = super::HmacDrbg<Hmac<sha2::Sha512_256>>;
 
-#[cfg(feature = "hmac_sha2")]
+#[cfg(feature = "hmac-sha2")]
 pub type HmacSha384Drbg = super::HmacDrbg<Hmac<sha2::Sha384>>;
 
-#[cfg(feature = "hmac_sha2")]
+#[cfg(feature = "hmac-sha2")]
 pub type HmacSha512Drbg = super::HmacDrbg<Hmac<sha2::Sha512>>;
