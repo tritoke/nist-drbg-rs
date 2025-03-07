@@ -56,7 +56,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
                 });
             }
             // Compute the seed material from the derivation function and user supplied entropy
-            ctr_df::<C, SEEDLEN>(&[entropy, nonce, personalization_string], &mut seed_material[..]);
+            ctr_drbg_df::<C, SEEDLEN>(&[entropy, nonce, personalization_string], &mut seed_material[..]);
         }
         // Otherwise seed_material = entropy ^ pad(personalization_string)
         else {
@@ -174,7 +174,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
                 });
             }
             // Compute the seed material from the derivation function and user supplied entropy
-            ctr_df::<C, SEEDLEN>(&[entropy, additional_input], &mut seed_material[..]);
+            ctr_drbg_df::<C, SEEDLEN>(&[entropy, additional_input], &mut seed_material[..]);
         }
         // Otherwise seed_material = entropy ^ pad(personalization_string)
         else {
@@ -244,7 +244,6 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // buf = buf || Enc_K(V)
             let lower = i * block_len;
             let upper = (i + 1) * block_len;
-
             if upper < bufsz {
                 buf[lower..upper].copy_from_slice(&ct);
             } else {
@@ -263,7 +262,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 /// Aux function in 10.3.2
 /// we really want to return this: [u8; C:BlockSize + C:KeySize] or should
 /// we include this into the input like with hash_df
-fn ctr_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(seed_material: &[&[u8]], out: &mut [u8]) {
+fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(seed_material: &[&[u8]], out: &mut [u8]) {
     // TODO: max len of out should be 512 bits
 
     // Compute the length of the input and output as four bytes big endian
@@ -274,10 +273,32 @@ fn ctr_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(seed_ma
     // Now we need the value S = L || N || input || 0x80 || 0x00 ... 0x00
     // where we only pad with zeros to ensure S has length SEEDLEN
     if (4 + 4 + input_len + 1) > SEEDLEN {
-        // This should be an error, i think? Unless we know this is never true
         todo!()
     }
-    todo!();
+    // s should be left padded with zeros to match the out-length which is always the seed length
+    let mut s :[u8; SEEDLEN] = [0; SEEDLEN];
+    s[..4].copy_from_slice(&input_len_bytes);
+    s[4..8].copy_from_slice(&output_len_bytes);
+
+    // Fill s with all slices within seed_material
+    // This seems like a not-very-rust way to solve this!
+    let mut byte_counter = 0;
+    for block in seed_material {
+        s[8 + byte_counter.. 8 + byte_counter + block.len()].copy_from_slice(&block);
+        byte_counter += block.len();
+    }
+    assert!(byte_counter == input_len);
+
+    // Add a 0x80 byte to pad
+    s[8 + byte_counter] = 0x80;
+
+    // Create the key 0x00 0x01 0x02 ... 0xXX
+    let mut key = GenericArray::<u8, C::KeySize>::default();
+    for (i, ki) in key.iter_mut().enumerate() {
+        *ki = i as u8;
+    }
+
+    todo!()
 }
 
 /// Helper function which computes A = A XOR B
