@@ -1,7 +1,7 @@
-use nist_drbg_rs::Drbg;
-use nist_drbg_rs::Sha1Drbg;
-use nist_drbg_rs::HmacSha1Drbg;
 use nist_drbg_rs::AesCtr128Drbg;
+use nist_drbg_rs::Drbg;
+use nist_drbg_rs::HmacSha1Drbg;
+use nist_drbg_rs::Sha1Drbg;
 
 fn test_hash() {
     let entropy: &[u8] = &hex::decode("136cf1c174e5a09f66b962d994396525").unwrap();
@@ -56,7 +56,8 @@ fn test_hmac_add() {
 }
 
 fn test_ctr() {
-    let entropy: &[u8] = &hex::decode("ce50f33da5d4c1d3d4004eb35244b7f2cd7f2e5076fbf6780a7ff634b249a5fc").unwrap();
+    let entropy: &[u8] =
+        &hex::decode("ce50f33da5d4c1d3d4004eb35244b7f2cd7f2e5076fbf6780a7ff634b249a5fc").unwrap();
     let nonce: &[u8] = &[];
     let returned_bytes: &[u8] = &hex::decode("6545c0529d372443b392ceb3ae3a99a30f963eaf313280f1d1a1e87f9db373d361e75d18018266499cccd64d9bbb8de0185f213383080faddec46bae1f784e5a").unwrap();
     let mut drbg = AesCtr128Drbg::new(entropy, nonce, &[], false).unwrap();
@@ -68,10 +69,13 @@ fn test_ctr() {
 }
 
 fn test_ctr_add() {
-    let entropy: &[u8] = &hex::decode("6bd4f2ae649fc99350951ff0c5d460c1a9214154e7384975ee54b34b7cae0704").unwrap();
+    let entropy: &[u8] =
+        &hex::decode("6bd4f2ae649fc99350951ff0c5d460c1a9214154e7384975ee54b34b7cae0704").unwrap();
     let nonce: &[u8] = &[];
-    let add1: &[u8] = &hex::decode("ecd4893b979ac92db1894ae3724518a2f78cf2dbe2f6bbc6fda596df87c7a4ae").unwrap();
-    let add2: &[u8] = &hex::decode("b23e9188687c88768b26738862c4791fa52f92502e1f94bf66af017c4228a0dc").unwrap();
+    let add1: &[u8] =
+        &hex::decode("ecd4893b979ac92db1894ae3724518a2f78cf2dbe2f6bbc6fda596df87c7a4ae").unwrap();
+    let add2: &[u8] =
+        &hex::decode("b23e9188687c88768b26738862c4791fa52f92502e1f94bf66af017c4228a0dc").unwrap();
     let returned_bytes: &[u8] = &hex::decode("5b2bf7a5c60d8ab6591110cbd61cd387b02de19784f496d1a109123d8b3562a5de2dd6d5d1aef957a6c4f371cecd93c15799d82e34d6a0dba7e915a27d8e65f3").unwrap();
     let mut drbg = AesCtr128Drbg::new(entropy, nonce, &[], false).unwrap();
 
