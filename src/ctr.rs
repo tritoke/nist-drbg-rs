@@ -77,8 +77,8 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             seed_material.copy_from_slice(personalization_string);
 
             // Finally compute
-            // seed_material = entropy ^ personalization_string
-            xor_into(&mut seed_material[..], &[entropy]);
+            // seed_material = entropy ^ pad(personalization_string)
+            xor_into(&mut seed_material[..], &entropy);
         }
 
         // For instantiation, both key and value should be all zeros
@@ -98,18 +98,18 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             derivation_function,
             _prediction_resistance_flag: false,
         };
-        ctr_drbg.ctr_drbg_update(&[entropy, nonce, personalization_string]);
+        ctr_drbg.ctr_drbg_update(&seed_material);
         Ok(ctr_drbg)
     }
 
     // Auxiliary function in section 10.1.2.2
-    fn ctr_drbg_update(&mut self, provided_data: &[&[u8]]) {
+    fn ctr_drbg_update(&mut self, provided_data: &[u8]) {
         // Buffer to fill with update bytes
         let mut tmp: [u8; SEEDLEN] = [0; SEEDLEN];
 
         // Create a cipher to encrypt blocks
         let cipher = C::new(&self.key);
-        
+
         let block_len = C::block_size();
         let m = SEEDLEN.div_ceil(block_len);
         for i in 0..m {
@@ -122,7 +122,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // Add an encryption block, note encrypt_block works in-place
             let mut ct = self.value.clone(); // TODO do i have to clone?
             cipher.encrypt_block(&mut ct);
-            
+
             // tmp = tmp || Enc_K(V)
             let lower = i * block_len;
             let upper = (i + 1) * block_len;
@@ -136,6 +136,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // tmp = tmp XOR provided_data
         xor_into(&mut tmp, provided_data);
 
+        // TODO: I need to cast from slices back to the generic arrays, this is broken
         // set key as the left most bytes of tmp
         self.key = tmp[..self.key.len()].try_into().unwrap();
 
@@ -149,7 +150,56 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         entropy: &[u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        todo!()
+        // Whether or not we use a derivation_function, we first populate
+        // seed_material with the user input
+        let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
+
+        // If additional_input is None, use &[] for now...
+        let additional_input = match additional_input {
+            Some(v) => v,
+            None => &[],
+        };
+
+        // When a derivation function is used then the entropy input is
+        // seed_material = entropy || additional_input
+        // which must have length SEEDLEN
+        if self.derivation_function {
+            // Ensure that entropy || nonce || personalization_string
+            // as exactly length BlockSize + KeySize
+            if entropy.len() + additional_input.len() != SEEDLEN {
+                return Err(SeedError::LengthError {
+                    max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
+                    requested_size: entropy.len() + additional_input.len(),
+                });
+            }
+            // Compute the seed material from the derivation function and user supplied entropy
+            ctr_df::<C, SEEDLEN>(&[entropy, additional_input], &mut seed_material[..]);
+        }
+        // Otherwise seed_material = entropy ^ pad(personalization_string)
+        else {
+            // Ensure that entropy has length SEEDLEN
+            if entropy.len() != SEEDLEN {
+                return Err(SeedError::LengthError {
+                    max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
+                    requested_size: entropy.len(),
+                });
+            }
+
+            // The personalization string must be padded with zeros on the right to
+            // ensure it has length SEEDLEN. We can do this by copying personalization_string
+            // into seed_material
+            seed_material.copy_from_slice(additional_input);
+
+            // Compute:
+            // seed_material = entropy ^ pad(additional_data)
+            xor_into(&mut seed_material[..], &entropy);
+        }
+
+        // Set key, V using the update function
+        self.ctr_drbg_update(&seed_material);
+        self.reseed_counter = 1;
+
+        Ok(())
     }
 
     fn random_bytes_core(
@@ -157,7 +207,50 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        todo!()
+        // TODO: check reseed counter
+        if self.reseed_counter > 99999 {
+            return Err(SeedError::CounterExhausted);
+        }
+
+        // pad additional input to length SEEDLEN
+        let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
+        match additional_input {
+            Some(v) => seed_material[..v.len()].copy_from_slice(v),
+            None => ()
+        };
+
+        // Create a cipher to encrypt blocks
+        let cipher = C::new(&self.key);
+
+        // Fill buf with random bytes by repeatedly appending encryptions
+        let block_len = C::block_size();
+        let m = SEEDLEN.div_ceil(block_len);
+        for i in 0..m {
+            // If ctr_len < blocklen
+            // TODO what is ctr_len? The table just says 4 <= ctr_ln <= block_len
+            // Else
+            // V = V + 1 mod 2^block_len
+            increment(&mut self.value);
+
+            // Add an encryption block, note encrypt_block works in-place
+            let mut ct = self.value.clone(); // TODO do i have to clone?
+            cipher.encrypt_block(&mut ct);
+
+            // buf = buf || Enc_K(V)
+            let lower = i * block_len;
+            let upper = (i + 1) * block_len;
+            if upper < SEEDLEN {
+                buf[lower..upper].copy_from_slice(&ct);
+            } else {
+                buf[lower..].copy_from_slice(&ct[..SEEDLEN - lower]);
+            }
+        }
+
+        // Update for backtracking resistance
+        self.ctr_drbg_update(&seed_material);
+        self.reseed_counter += 1;
+
+        Ok(())
     }
 }
 
@@ -182,15 +275,18 @@ fn ctr_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(seed_ma
 }
 
 /// Helper function which computes A = A XOR B
-fn xor_into(a: &mut [u8], b_blocks: &[&[u8]]) {
-    // Calculate the total length of b_blocks
-    let total_length: usize = b_blocks.iter().map(|block| block.len()).sum();
-    if total_length < a.len() {
+fn xor_into(a: &mut [u8], b: &[u8]) {
+    // Ensure len(b) <= len(a)
+    if b.len() > a.len() {
         panic!("b_blocks is too short to XOR with a"); // TODO: proper error handling
     }
-    for (ai, bi) in a.iter_mut().zip(b_blocks.iter().flat_map(|block| *block)) {
+    for (ai, bi) in a.iter_mut().zip(b.iter()) {
         *ai ^= bi
     }
+}
+
+fn bcc() {
+    todo!()
 }
 
 impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {
