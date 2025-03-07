@@ -2,6 +2,10 @@
 
 use core::{error::Error, fmt::Display, marker::Sized};
 
+// Should we feature lock this? We don't need it for Hmac, but will for Hash
+// and CTR
+pub mod arithmetic;
+
 #[cfg(any(feature = "sha1", feature = "sha2"))]
 pub mod hash;
 

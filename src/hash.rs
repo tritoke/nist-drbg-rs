@@ -2,6 +2,7 @@ use core::marker::PhantomData;
 
 use digest::{Digest, OutputSizeUser};
 
+use crate::arithmetic::{add_into, increment};
 use crate::{Drbg, SeedError};
 
 /// What is the maximum number of calls to Hash_DRBG before the DRBG must be reseeded?
@@ -148,24 +149,6 @@ impl<H: Digest, const SEEDLEN: usize> Drbg for HashDrbg<H, SEEDLEN> {
     }
 }
 
-#[inline]
-const fn carrying_add(x: u8, y: u8, carry: bool) -> (u8, bool) {
-    let (a, b) = x.overflowing_add(y);
-    let (c, d) = a.overflowing_add(carry as u8);
-    (c, b | d)
-}
-
-fn add_into(a: &mut [u8], b: &[u8]) {
-    let mut carry = false;
-    let a_len = a.len();
-    let b_len = b.len();
-    for i in 1..=a_len {
-        let ai = &mut a[a_len - i];
-        let bi = b_len.checked_sub(i).map(|idx| b[idx]).unwrap_or(0);
-        (*ai, carry) = carrying_add(*ai, bi, carry);
-    }
-}
-
 /// Auxiliary function defined in 10.3.1
 fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), SeedError> {
     let hashsz = <H as OutputSizeUser>::output_size();
@@ -215,7 +198,7 @@ fn hashgen<H: Digest, const SEEDLEN: usize>(value: [u8; SEEDLEN], out: &mut [u8]
         let w = H::new_with_prefix(data).finalize();
 
         // data = (data + 1) % 2^seedlen
-        add_into(&mut data, &[1]);
+        increment(&mut data);
 
         // W = W || w
         let lower = i * hashsz;
