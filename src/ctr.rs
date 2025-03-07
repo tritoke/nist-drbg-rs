@@ -1,9 +1,11 @@
+use aes::cipher::BlockEncrypt;
 use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
 use aes::{Aes128, Aes192, Aes256};
 
+use crate::arithmetic::increment;
 use crate::{Drbg, SeedError};
 
-pub struct CtrDrbg<C: BlockCipher + KeyInit, const SEEDLEN: usize> {
+pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> {
     // key - Value of `seedlen` bits
     key: GenericArray<u8, C::KeySize>,
 
@@ -21,7 +23,7 @@ pub struct CtrDrbg<C: BlockCipher + KeyInit, const SEEDLEN: usize> {
     _prediction_resistance_flag: bool, // is this drbg prediction resistant?
 }
 
-impl<C: BlockCipher + KeyInit, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
+impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
     pub fn new(
         entropy: &[u8],
         nonce: &[u8],
@@ -76,7 +78,7 @@ impl<C: BlockCipher + KeyInit, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
 
             // Finally compute
             // seed_material = entropy ^ personalization_string
-            xor_into(&mut seed_material[..], entropy);
+            xor_into(&mut seed_material[..], &[entropy]);
         }
 
         // For instantiation, both key and value should be all zeros
@@ -102,12 +104,44 @@ impl<C: BlockCipher + KeyInit, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
 
     // Auxiliary function in section 10.1.2.2
     fn ctr_drbg_update(&mut self, provided_data: &[&[u8]]) {
-
         // Buffer to fill with update bytes
         let mut tmp: [u8; SEEDLEN] = [0; SEEDLEN];
 
-        // TODO
-        // xor_into(tmp, )
+        // Create a cipher to encrypt blocks
+        let cipher = C::new(&self.key);
+        
+        let block_len = C::block_size();
+        let m = SEEDLEN.div_ceil(block_len);
+        for i in 0..m {
+            // If ctr_len < blocklen
+            // TODO what is ctr_len? The table just says 4 <= ctr_ln <= block_len
+            // Else
+            // V = V + 1 mod 2^block_len
+            increment(&mut self.value);
+
+            // Add an encryption block, note encrypt_block works in-place
+            let mut ct = self.value.clone(); // TODO do i have to clone?
+            cipher.encrypt_block(&mut ct);
+            
+            // tmp = tmp || Enc_K(V)
+            let lower = i * block_len;
+            let upper = (i + 1) * block_len;
+            if upper < SEEDLEN {
+                tmp[lower..upper].copy_from_slice(&ct);
+            } else {
+                tmp[lower..].copy_from_slice(&ct[..SEEDLEN - lower]);
+            }
+        }
+
+        // tmp = tmp XOR provided_data
+        xor_into(&mut tmp, provided_data);
+
+        // set key as the left most bytes of tmp
+        self.key = tmp[..self.key.len()].try_into().unwrap();
+
+        // set value as the rightmost bytes of tmp
+        self.value = tmp[self.key.len()..].try_into().unwrap();
+
     }
 
     fn reseed_core(
@@ -130,7 +164,7 @@ impl<C: BlockCipher + KeyInit, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
 /// Aux function in 10.3.2
 /// we really want to return this: [u8; C:BlockSize + C:KeySize] or should
 /// we include this into the input like with hash_df
-fn ctr_df<C: BlockCipher + KeyInit, const SEEDLEN: usize>(seed_material: &[&[u8]], out: &mut [u8]) {
+fn ctr_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(seed_material: &[&[u8]], out: &mut [u8]) {
     // TODO: max len of out should be 512 bits
 
     // Compute the length of the input and output as four bytes big endian
@@ -148,14 +182,18 @@ fn ctr_df<C: BlockCipher + KeyInit, const SEEDLEN: usize>(seed_material: &[&[u8]
 }
 
 /// Helper function which computes A = A XOR B
-fn xor_into(a: &mut [u8], b: &[u8]) {
-    // TODO assert a, b are the same length, or pad with zeros?
-    for i in 0..a.len() {
-        a[i] = a[i] ^ b[i];
+fn xor_into(a: &mut [u8], b_blocks: &[&[u8]]) {
+    // Calculate the total length of b_blocks
+    let total_length: usize = b_blocks.iter().map(|block| block.len()).sum();
+    if total_length < a.len() {
+        panic!("b_blocks is too short to XOR with a"); // TODO: proper error handling
+    }
+    for (ai, bi) in a.iter_mut().zip(b_blocks.iter().flat_map(|block| *block)) {
+        *ai ^= bi
     }
 }
 
-impl<C: BlockCipher + KeyInit, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {
+impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {
     #[inline]
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
         self.reseed_core(entropy, None)
