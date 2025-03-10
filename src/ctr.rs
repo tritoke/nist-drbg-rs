@@ -1,3 +1,5 @@
+use std::default;
+
 use aes::cipher::BlockEncrypt;
 use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
 use aes::{Aes128, Aes192, Aes256};
@@ -286,10 +288,8 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     let input_len_bytes = (input_len as u32).to_be_bytes();
     let output_len_bytes = (out.len() as u32).to_be_bytes();
 
-    // TODO: this is wrong -- we need s to be made of many blocks of length block_len
-
     // s should be left padded with zeros to match the out-length which is always the seed length
-    let mut s: [u8; SEEDLEN] = [0; SEEDLEN];
+    let mut s: [u8; 33] = [0; 33]; // TODO massive hack
     s[..4].copy_from_slice(&input_len_bytes);
     s[4..8].copy_from_slice(&output_len_bytes);
 
@@ -303,8 +303,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
 
     // Add a 0x80 byte to pad
     s[8 + byte_counter] = 0x80;
-
-    // TODO: the above is wrong
 
     /*
      * This step makes a key 0x00 0x01 0x02 ... 0xXX and uses this to encrypt
@@ -326,7 +324,7 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     let m = outsz.div_ceil(block_len);
     for i in 0..m {
         // IV = (i as u32 to big endian bytes) || 0x00 ... 0x00
-        iv[..4].copy_from_slice(&(i).to_be_bytes());
+        iv[..4].copy_from_slice(&(i as u32).to_be_bytes());
 
         // now we obtain block_size bytes from BCC
         bcc::<C, SEEDLEN>(&key, &iv, &s, &mut ct);
@@ -366,8 +364,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
             out[lower..].copy_from_slice(&ct[..outsz - lower]);
         }
     }
-
-    todo!()
 }
 
 /// Helper function which computes A = A XOR B
@@ -399,10 +395,25 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     cipher.encrypt_block(out);
 
     // Now we iterate through blocks of the input data
-    let n = data.len() / out.len();
+    let n = data.len().div_ceil(out.len());
+    let mut block = GenericArray::<u8, C::BlockSize>::default();
+
+    // WARNING HACK for padding
     for i in 0..n {
-        // NOTE: is data always a multiple length of the block length if we didn't mess up
-        xor_into( out, &data[i * block_len..(i + 1) * block_len]);
+        // NOTE: we have not yet padded with zeros, so we handle this here in the
+        // inner loop
+        if i == n - 1 {
+            // first zero everything
+            for b in block.iter_mut() {
+                *b = 0;
+            }
+            // now copy in whatever is left into the block
+            block[..data.len() - i * block_len].copy_from_slice(&data[i * block_len..])
+        }
+        else {
+            block.copy_from_slice(&data[i * block_len..(i + 1) * block_len])
+        }
+        xor_into( out, &block);
         cipher.encrypt_block(out);
     }
 }
