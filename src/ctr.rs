@@ -57,7 +57,10 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
                 });
             }
             // Compute the seed material from the derivation function and user supplied entropy
-            ctr_drbg_df::<C, SEEDLEN>(&[entropy, nonce, personalization_string], &mut seed_material[..]);
+            ctr_drbg_df::<C, SEEDLEN>(
+                &[entropy, nonce, personalization_string],
+                &mut seed_material[..],
+            );
         }
         // Otherwise seed_material = entropy ^ pad(personalization_string)
         else {
@@ -144,7 +147,6 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
         // set value as the rightmost bytes of tmp
         self.value.copy_from_slice(&tmp[key_len..]);
-
     }
 
     fn reseed_core(
@@ -220,8 +222,8 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             Some(v) => {
                 seed_material[..v.len()].copy_from_slice(v);
                 self.ctr_drbg_update(&seed_material);
-            },
-            None => ()
+            }
+            None => (),
         };
 
         // Create a cipher to encrypt blocks
@@ -263,13 +265,16 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 /// Aux function in 10.3.2
 /// we really want to return this: [u8; C:BlockSize + C:KeySize] or should
 /// we include this into the input like with hash_df
-fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(seed_material: &[&[u8]], out: &mut [u8]) {
+fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
+    seed_material: &[&[u8]],
+    out: &mut [u8],
+) {
     // TODO: max len of out should be 512 bits
 
     /*
      * This first block of code is to make: S = L || N || input || 0x80 || 0x00 ... 0x00
      */
-    
+
     // Compute the length of the input and output as four bytes big endian
     let input_len: usize = seed_material.iter().map(|block| block.len()).sum();
     let input_len_bytes = (input_len as u32).to_be_bytes();
@@ -280,9 +285,9 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(se
     if (4 + 4 + input_len + 1) > SEEDLEN {
         todo!()
     }
-    
+
     // s should be left padded with zeros to match the out-length which is always the seed length
-    let mut s :[u8; SEEDLEN] = [0; SEEDLEN];
+    let mut s: [u8; SEEDLEN] = [0; SEEDLEN];
     s[..4].copy_from_slice(&input_len_bytes);
     s[4..8].copy_from_slice(&output_len_bytes);
 
@@ -290,14 +295,13 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(se
     // This seems like a not-very-rust way to solve this!
     let mut byte_counter = 0;
     for block in seed_material {
-        s[8 + byte_counter.. 8 + byte_counter + block.len()].copy_from_slice(&block);
+        s[8 + byte_counter..8 + byte_counter + block.len()].copy_from_slice(&block);
         byte_counter += block.len();
     }
     assert!(byte_counter == input_len);
 
     // Add a 0x80 byte to pad
     s[8 + byte_counter] = 0x80;
-
 
     /*
      * This step makes a key 0x00 0x01 0x02 ... 0xXX and uses this to encrypt
@@ -322,8 +326,7 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(se
         iv[..4].copy_from_slice(&(i).to_be_bytes());
 
         // now we obtain block_size bytes from BCC
-        // TODO
-        // ct = BCC(key, &iv, &s);
+        bcc::<C, SEEDLEN>(&key, &iv, &s, &mut ct);
 
         // out = out || BCC(K, IV || S)
         let lower = i * block_len;
@@ -341,7 +344,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(se
 
     // set X as the rightmost bytes of out
     ct.copy_from_slice(&out[key_len..]);
-
 
     /*
      * Now we have a new key and value X = ct, we repeatedly encrypt this and fill the out
@@ -376,8 +378,30 @@ fn xor_into(a: &mut [u8], b: &[u8]) {
     }
 }
 
-fn bcc() {
-    todo!()
+fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
+    key: &GenericArray<u8, C::KeySize>,
+    iv: &[u8],
+    data: &[u8],
+    out: &mut GenericArray<u8, C::BlockSize>,
+) {
+    // Ensure our chaining value is all zeros
+    for c in out.iter_mut() {
+        *c = 0;
+    }
+    let block_len = out.len();
+
+    // First we XOR the IV into the chaining value and encrypt
+    let cipher = C::new(key);
+    xor_into( out, iv);
+    cipher.encrypt_block(out);
+
+    // Now we iterate through blocks of the input data
+    let n = data.len() / out.len();
+    for i in 0..n {
+        // NOTE: is data always a multiple length of the block length if we didn't mess up
+        xor_into( out, &data[i * block_len..(i + 1) * block_len]);
+        cipher.encrypt_block(out);
+    }
 }
 
 impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {

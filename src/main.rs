@@ -1,7 +1,7 @@
-use nist_drbg_rs::{AesCtr128Drbg, TdeaCtrDrbg};
 use nist_drbg_rs::Drbg;
 use nist_drbg_rs::HmacSha1Drbg;
 use nist_drbg_rs::Sha1Drbg;
+use nist_drbg_rs::{AesCtr128Drbg, TdeaCtrDrbg};
 
 fn test_hash() {
     let entropy: &[u8] = &hex::decode("136cf1c174e5a09f66b962d994396525").unwrap();
@@ -59,7 +59,8 @@ fn test_tdea_ctr() {
     let entropy: &[u8] =
         &hex::decode("4cd97f1701716d1a22f90b55c569c8f2b91aa53322653dcae809abc5c6").unwrap();
     let nonce: &[u8] = &[];
-    let returned_bytes: &[u8] = &hex::decode("4353dd937ec55e6733cf7a5d2cea557ce8e3fcc6cdb18e44395e4b1c4669c9d1").unwrap();
+    let returned_bytes: &[u8] =
+        &hex::decode("4353dd937ec55e6733cf7a5d2cea557ce8e3fcc6cdb18e44395e4b1c4669c9d1").unwrap();
     let mut drbg = TdeaCtrDrbg::new(entropy, nonce, &[], false).unwrap();
 
     let mut buf: [u8; 32] = [0; 32];
@@ -76,7 +77,8 @@ fn test_tdea_ctr_add() {
         &hex::decode("531197ce30a47ed6703b4f2f1afef74428fa86f42637906c99085903fd").unwrap();
     let add2: &[u8] =
         &hex::decode("e3737cb398aa345f3747da9b7f8c7d9144f72727c4ff05885f9d0d69e4").unwrap();
-    let returned_bytes: &[u8] = &hex::decode("1b064c87608031d0082f7c300ef0f4fdd2590c88b0ef0f0c474341e47b062b6e").unwrap();
+    let returned_bytes: &[u8] =
+        &hex::decode("1b064c87608031d0082f7c300ef0f4fdd2590c88b0ef0f0c474341e47b062b6e").unwrap();
     let mut drbg = TdeaCtrDrbg::new(entropy, nonce, &[], false).unwrap();
 
     let mut buf: [u8; 32] = [0; 32];

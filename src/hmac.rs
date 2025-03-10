@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use digest::{generic_array::GenericArray, FixedOutputReset, KeyInit};
+use digest::{FixedOutputReset, KeyInit, generic_array::GenericArray};
 
 use hmac::{Hmac, Mac};
 
