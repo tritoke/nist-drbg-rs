@@ -266,6 +266,10 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(seed_material: &[&[u8]], out: &mut [u8]) {
     // TODO: max len of out should be 512 bits
 
+    /*
+     * This first block of code is to make: S = L || N || input || 0x80 || 0x00 ... 0x00
+     */
+    
     // Compute the length of the input and output as four bytes big endian
     let input_len: usize = seed_material.iter().map(|block| block.len()).sum();
     let input_len_bytes = (input_len as u32).to_be_bytes();
@@ -276,6 +280,7 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(se
     if (4 + 4 + input_len + 1) > SEEDLEN {
         todo!()
     }
+    
     // s should be left padded with zeros to match the out-length which is always the seed length
     let mut s :[u8; SEEDLEN] = [0; SEEDLEN];
     s[..4].copy_from_slice(&input_len_bytes);
@@ -293,10 +298,68 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(se
     // Add a 0x80 byte to pad
     s[8 + byte_counter] = 0x80;
 
+
+    /*
+     * This step makes a key 0x00 0x01 0x02 ... 0xXX and uses this to encrypt
+     * a value with BCC to generate SEEDLEN bytes which are used to derive a
+     * new key and new value X which we use to fill the output buffer
+     */
+
     // Create the key 0x00 0x01 0x02 ... 0xXX
     let mut key = GenericArray::<u8, C::KeySize>::default();
     for (i, ki) in key.iter_mut().enumerate() {
         *ki = i as u8;
+    }
+
+    // Fill the output bytes with values from BCC to generate SEEDLEN new bytes
+    let mut iv = GenericArray::<u8, C::BlockSize>::default();
+    let mut ct = GenericArray::<u8, C::BlockSize>::default();
+    let block_len = C::block_size();
+    let outsz = out.len();
+    let m = outsz.div_ceil(block_len);
+    for i in 0..m {
+        // IV = (i as u32 to big endian bytes) || 0x00 ... 0x00
+        iv[..4].copy_from_slice(&(i).to_be_bytes());
+
+        // now we obtain block_size bytes from BCC
+        // TODO
+        // ct = BCC(key, &iv, &s);
+
+        // out = out || BCC(K, IV || S)
+        let lower = i * block_len;
+        let upper = (i + 1) * block_len;
+        if upper < outsz {
+            out[lower..upper].copy_from_slice(&ct);
+        } else {
+            out[lower..].copy_from_slice(&ct[..outsz - lower]);
+        }
+    }
+
+    // Now we set the key to the first bytes of out and X to the next block_size bytes
+    let key_len = key.len();
+    key.copy_from_slice(&out[..key_len]);
+
+    // set X as the rightmost bytes of out
+    ct.copy_from_slice(&out[key_len..]);
+
+
+    /*
+     * Now we have a new key and value X = ct, we repeatedly encrypt this and fill the out
+     * buffer with these bytes
+     */
+    let cipher = C::new(&key);
+    for i in 0..m {
+        // Note that encryption works in place
+        cipher.encrypt_block(&mut ct);
+
+        // out = out || Enc(K, ct)
+        let lower = i * block_len;
+        let upper = (i + 1) * block_len;
+        if upper < outsz {
+            out[lower..upper].copy_from_slice(&ct);
+        } else {
+            out[lower..].copy_from_slice(&ct[..outsz - lower]);
+        }
     }
 
     todo!()
