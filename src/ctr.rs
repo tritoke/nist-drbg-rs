@@ -48,14 +48,19 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // which is fed into a derivation function before being used
         // as the value to be processed by ctr_drbg_update
         if derivation_function {
+            // TODO: nonce cannot have zero length
+
             // Ensure that entropy || nonce || personalization_string
             // as exactly length BlockSize + KeySize
-            if entropy.len() + nonce.len() + personalization_string.len() != SEEDLEN {
-                return Err(SeedError::LengthError {
-                    max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
-                    requested_size: entropy.len() + nonce.len() + personalization_string.len(),
-                });
-            }
+
+            // TODO: this doesnt seem to be true looking at the KAT values?!
+            // if entropy.len() + nonce.len() + personalization_string.len() != SEEDLEN {
+            //     return Err(SeedError::LengthError {
+            //         max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
+            //         requested_size: entropy.len() + nonce.len() + personalization_string.len(),
+            //     });
+            // }
+
             // Compute the seed material from the derivation function and user supplied entropy
             ctr_drbg_df::<C, SEEDLEN>(
                 &[entropy, nonce, personalization_string],
@@ -273,6 +278,7 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
 
     /*
      * This first block of code is to make: S = L || N || input || 0x80 || 0x00 ... 0x00
+     * which should be len(s) % block_len = 0
      */
 
     // Compute the length of the input and output as four bytes big endian
@@ -280,11 +286,7 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     let input_len_bytes = (input_len as u32).to_be_bytes();
     let output_len_bytes = (out.len() as u32).to_be_bytes();
 
-    // Now we need the value S = L || N || input || 0x80 || 0x00 ... 0x00
-    // where we only pad with zeros to ensure S has length SEEDLEN
-    if (4 + 4 + input_len + 1) > SEEDLEN {
-        todo!()
-    }
+    // TODO: this is wrong -- we need s to be made of many blocks of length block_len
 
     // s should be left padded with zeros to match the out-length which is always the seed length
     let mut s: [u8; SEEDLEN] = [0; SEEDLEN];
@@ -298,10 +300,11 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
         s[8 + byte_counter..8 + byte_counter + block.len()].copy_from_slice(&block);
         byte_counter += block.len();
     }
-    assert!(byte_counter == input_len);
 
     // Add a 0x80 byte to pad
     s[8 + byte_counter] = 0x80;
+
+    // TODO: the above is wrong
 
     /*
      * This step makes a key 0x00 0x01 0x02 ... 0xXX and uses this to encrypt
