@@ -1,6 +1,7 @@
 use aes::cipher::BlockEncrypt;
 use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
 use aes::{Aes128, Aes192, Aes256};
+use des::TdesEde3;
 
 use crate::arithmetic::increment;
 use crate::{Drbg, SeedError};
@@ -343,6 +344,9 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for Ctr
 }
 
 // SEEDLEN = BlockSize + KeySize
+#[cfg(feature = "tdea-ctr")]
+pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3, { 8 + 21 }>;
+
 #[cfg(feature = "aes-ctr")]
 pub type AesCtr128Drbg = super::CtrDrbg<Aes128, { 16 + 16 }>;
 

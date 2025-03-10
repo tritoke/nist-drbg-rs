@@ -1,4 +1,4 @@
-use nist_drbg_rs::AesCtr128Drbg;
+use nist_drbg_rs::{AesCtr128Drbg, TdeaCtrDrbg};
 use nist_drbg_rs::Drbg;
 use nist_drbg_rs::HmacSha1Drbg;
 use nist_drbg_rs::Sha1Drbg;
@@ -55,7 +55,37 @@ fn test_hmac_add() {
     println!("{}", buf == returned_bytes);
 }
 
-fn test_ctr() {
+fn test_tdea_ctr() {
+    let entropy: &[u8] =
+        &hex::decode("4cd97f1701716d1a22f90b55c569c8f2b91aa53322653dcae809abc5c6").unwrap();
+    let nonce: &[u8] = &[];
+    let returned_bytes: &[u8] = &hex::decode("4353dd937ec55e6733cf7a5d2cea557ce8e3fcc6cdb18e44395e4b1c4669c9d1").unwrap();
+    let mut drbg = TdeaCtrDrbg::new(entropy, nonce, &[], false).unwrap();
+
+    let mut buf: [u8; 32] = [0; 32];
+    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.random_bytes(&mut buf);
+    println!("{}", buf == returned_bytes);
+}
+
+fn test_tdea_ctr_add() {
+    let entropy: &[u8] =
+        &hex::decode("37a71a5e7adb233e438dbca9e2e89d0a1c927de79554bc8650f70d5141").unwrap();
+    let nonce: &[u8] = &[];
+    let add1: &[u8] =
+        &hex::decode("531197ce30a47ed6703b4f2f1afef74428fa86f42637906c99085903fd").unwrap();
+    let add2: &[u8] =
+        &hex::decode("e3737cb398aa345f3747da9b7f8c7d9144f72727c4ff05885f9d0d69e4").unwrap();
+    let returned_bytes: &[u8] = &hex::decode("1b064c87608031d0082f7c300ef0f4fdd2590c88b0ef0f0c474341e47b062b6e").unwrap();
+    let mut drbg = TdeaCtrDrbg::new(entropy, nonce, &[], false).unwrap();
+
+    let mut buf: [u8; 32] = [0; 32];
+    let _ = drbg.random_bytes_extra(&mut buf, add1);
+    let _ = drbg.random_bytes_extra(&mut buf, add2);
+    println!("{}", buf == returned_bytes);
+}
+
+fn test_aes_ctr() {
     let entropy: &[u8] =
         &hex::decode("ce50f33da5d4c1d3d4004eb35244b7f2cd7f2e5076fbf6780a7ff634b249a5fc").unwrap();
     let nonce: &[u8] = &[];
@@ -68,7 +98,7 @@ fn test_ctr() {
     println!("{}", buf == returned_bytes);
 }
 
-fn test_ctr_add() {
+fn test_aes_ctr_add() {
     let entropy: &[u8] =
         &hex::decode("6bd4f2ae649fc99350951ff0c5d460c1a9214154e7384975ee54b34b7cae0704").unwrap();
     let nonce: &[u8] = &[];
@@ -90,6 +120,8 @@ fn main() {
     test_hash_add();
     test_hmac();
     test_hmac_add();
-    test_ctr();
-    test_ctr_add();
+    // test_tdea_ctr();
+    // test_tdea_ctr_add();
+    test_aes_ctr();
+    test_aes_ctr_add();
 }

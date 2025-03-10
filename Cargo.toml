@@ -18,7 +18,7 @@ sha2 = ["dep:sha2", "dep:digest"]
 hmac-drbg = ["hmac-sha1", "hmac-sha2"]
 hmac-sha1 = ["dep:hmac", "dep:sha1", "dep:digest"]
 hmac-sha2 = ["dep:hmac", "dep:sha2", "dep:digest"]
-ctr-drbg = ["aes-ctr"]
+ctr-drbg = ["aes-ctr", "tdea-ctr"]
 aes-ctr = ["dep:aes"]
 tdea-ctr = ["dep:des"]
 
