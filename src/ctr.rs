@@ -7,10 +7,10 @@ use crate::arithmetic::increment;
 use crate::{Drbg, SeedError};
 
 pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> {
-    // key - Value of `seedlen` bits
+    // key used for block cipher encryption
     key: GenericArray<u8, C::KeySize>,
 
-    // V - Value of `seedlen` bits
+    // V - value which has blocklen bits
     value: GenericArray<u8, C::BlockSize>,
 
     // the number of requests for bits received since the last (re)seeding
@@ -48,18 +48,9 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // which is fed into a derivation function before being used
         // as the value to be processed by ctr_drbg_update
         if derivation_function {
-            // TODO: nonce cannot have zero length
-
-            // Ensure that entropy || nonce || personalization_string
-            // as exactly length BlockSize + KeySize
-
-            // TODO: this doesnt seem to be true looking at the KAT values?!
-            // if entropy.len() + nonce.len() + personalization_string.len() != SEEDLEN {
-            //     return Err(SeedError::LengthError {
-            //         max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
-            //         requested_size: entropy.len() + nonce.len() + personalization_string.len(),
-            //     });
-            // }
+            if nonce.is_empty() {
+                return Err(SeedError::CounterExhausted); // TODO this should be a new error, lazy
+            }
 
             // Compute the seed material from the derivation function and user supplied entropy
             ctr_drbg_df::<C, SEEDLEN>(
@@ -94,7 +85,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // Default key:   0x00 ... 0x00 (Key length)
         // Default value: 0x00 ... 0x00 (Block length)
         for (ki, vi) in key.iter_mut().zip(value.iter_mut()) {
-            *ki = 0u8; // Set key and value elements to 0x00
+            *ki = 0;
             *vi = 0;
         }
 
@@ -122,9 +113,10 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         let block_len = C::block_size();
         let m = SEEDLEN.div_ceil(block_len);
         for i in 0..m {
-            // If ctr_len < blocklen
-            // TODO what is ctr_len? The table just says 4 <= ctr_ln <= block_len
-            // Else
+            // TODO: here we assume ctr_len = block_len
+            // if we allow ctr_len within the range 4 <= ctr_ln <= block_len
+            // we need to adjust the increment below.
+
             // V = V + 1 mod 2^block_len
             increment(&mut self.value);
 
@@ -145,12 +137,9 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // tmp = tmp XOR provided_data
         xor_into(&mut tmp, provided_data);
 
-        // TODO: I need to cast from slices back to the generic arrays, this is broken
-        // set key as the left most bytes of tmp
+        // set key as the leftmore and value as the rightmost bytes of tmp
         let key_len = self.key.len();
         self.key.copy_from_slice(&tmp[..key_len]);
-
-        // set value as the rightmost bytes of tmp
         self.value.copy_from_slice(&tmp[key_len..]);
     }
 
@@ -163,21 +152,14 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // seed_material with the user input
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
 
-        // If additional_input is None, use &[] for now...
+        // If additional_input is None, use b"" for now...
         let additional_input = additional_input.unwrap_or(b"");
 
         // When a derivation function is used then the entropy input is
         // seed_material = entropy || additional_input
         // which must have length SEEDLEN
         if self.derivation_function {
-            // Ensure that entropy || nonce || personalization_string
-            // as exactly length BlockSize + KeySize
-            if entropy.len() + additional_input.len() != SEEDLEN {
-                return Err(SeedError::LengthError {
-                    max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
-                    requested_size: entropy.len() + additional_input.len(),
-                });
-            }
+            // TODO: can additional_input be empty for this case?
             // Compute the seed material from the derivation function and user supplied entropy
             ctr_drbg_df::<C, SEEDLEN>(&[entropy, additional_input], &mut seed_material[..]);
         }
@@ -233,9 +215,10 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         let bufsz = buf.len();
         let m = bufsz.div_ceil(block_len);
         for i in 0..m {
-            // If ctr_len < blocklen
-            // TODO what is ctr_len? The table just says 4 <= ctr_ln <= block_len
-            // Else
+            // TODO: here we assume ctr_len = block_len
+            // if we allow ctr_len within the range 4 <= ctr_ln <= block_len
+            // we need to adjust the increment below.
+
             // V = V + 1 mod 2^block_len
             increment(&mut self.value);
 
@@ -284,8 +267,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
      * a value with BCC to generate SEEDLEN bytes which are used to derive a
      * new key and new value X which we use to fill the output buffer
      */
-
-    // Create the key 0x00 0x01 0x02 ... 0xXX
     let mut key = GenericArray::<u8, C::KeySize>::default();
     for (i, ki) in key.iter_mut().enumerate() {
         *ki = i as u8;
@@ -317,8 +298,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     // Now we set the key to the first bytes of out and X to the next block_size bytes
     let key_len = key.len();
     key.copy_from_slice(&out[..key_len]);
-
-    // set X as the rightmost bytes of out
     ct.copy_from_slice(&out[key_len..]);
 
     /*
@@ -366,7 +345,6 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
 
     // Compute the length of the input and output as four bytes big endian
     let input_len: usize = data.iter().map(|block| block.len()).sum();
-    let block_len = out.len();
     let input_len_bytes = (input_len as u32).to_be_bytes();
     let output_len_bytes = (SEEDLEN as u32).to_be_bytes();
 
@@ -381,13 +359,10 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     cipher.encrypt_block(out);
 
     // Now we iterate through all the various data values and make blocks to encrypt
-    let data_len = 4 + 4 + input_len + 1;
-    let n = data_len.div_ceil(block_len);
-
+    let block_len = out.len();
     // We will perform n block encryptions, filling this block with the input data
     let mut block = GenericArray::<u8, C::BlockSize>::default();
     let mut block_bytes_filled = 0;
-    let mut blocks_encrypted: usize = 0; // For debugging... 
 
     // The first block starts with input_len || block_len
     // For AES this is 1/2 a block, but for DES this is a full block, so we can always directly copy
@@ -407,7 +382,6 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
 
             // update internal helpers after encryption
             block_bytes_filled = 0;
-            blocks_encrypted += 1;
         }
 
         // Now add the next byte to the block to encrypt
@@ -420,12 +394,10 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
         xor_into(out, &block);
         cipher.encrypt_block(out);
         block_bytes_filled = 0;
-        blocks_encrypted += 1;
     }
 
     // Finally we need to append the byte 0x80 followed by zeros for the
     // final block
-    assert!(blocks_encrypted == n - 1);
     block[block_bytes_filled] = 0x80;
     block_bytes_filled += 1;
 
