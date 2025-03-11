@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use digest::{FixedOutputReset, KeyInit, generic_array::GenericArray};
+use digest::{generic_array::GenericArray, FixedOutputReset, KeyInit};
 
 use hmac::{Hmac, Mac};
 
@@ -77,10 +77,10 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         self.key = mac.finalize_reset().into_bytes();
 
         // V = HMAC(K, V)
-        Mac::update(&mut mac, &self.value);
+        mac = self.new_mac().chain_update(&self.value);
         self.value = mac.finalize_reset().into_bytes();
 
-        if provided_data.is_empty() {
+        if provided_data.iter().all(|block| block.is_empty()) {
             return;
         }
 
@@ -93,7 +93,8 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         self.key = mac.finalize_reset().into_bytes();
 
         // V = HMAC(K, V)
-        self.value = mac.chain_update(&self.value).finalize().into_bytes();
+        mac = self.new_mac().chain_update(&self.value);
+        self.value = mac.finalize_reset().into_bytes();
     }
 
     fn reseed_core(
