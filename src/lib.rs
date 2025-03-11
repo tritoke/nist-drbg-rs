@@ -31,6 +31,7 @@ pub enum SeedError {
         max_size: usize,
         requested_size: usize,
     },
+    EmptyNonce,
     CounterExhausted,
 }
 
@@ -41,6 +42,7 @@ impl Display for SeedError {
             SeedError::LengthError { max_size, requested_size } => {
                 write!(f, "Requested size of {requested_size} bytes exceeds maximum size of {max_size} bytes")
             },
+            SeedError::EmptyNonce => f.write_str("Nonce must not be empty"),
             SeedError::CounterExhausted => f.write_str("Counter has been exhaused, reseed")
         }
     }
