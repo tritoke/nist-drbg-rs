@@ -55,6 +55,7 @@ fn test_hmac_add() {
     println!("{}", buf == returned_bytes);
 }
 
+#[allow(dead_code)]
 fn test_tdea_ctr() {
     let entropy: &[u8] =
         &hex::decode("4cd97f1701716d1a22f90b55c569c8f2b91aa53322653dcae809abc5c6").unwrap();
@@ -69,6 +70,7 @@ fn test_tdea_ctr() {
     println!("{}", buf == returned_bytes);
 }
 
+#[allow(dead_code)]
 fn test_tdea_ctr_add() {
     let entropy: &[u8] =
         &hex::decode("37a71a5e7adb233e438dbca9e2e89d0a1c927de79554bc8650f70d5141").unwrap();

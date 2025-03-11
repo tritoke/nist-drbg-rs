@@ -87,7 +87,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
             // Finally compute
             // seed_material = entropy ^ pad(personalization_string)
-            xor_into(&mut seed_material[..], &entropy);
+            xor_into(&mut seed_material[..], entropy);
         }
 
         // For instantiation, both key and value should be all zeros
@@ -164,10 +164,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
 
         // If additional_input is None, use &[] for now...
-        let additional_input = match additional_input {
-            Some(v) => v,
-            None => &[],
-        };
+        let additional_input = additional_input.unwrap_or(b"");
 
         // When a derivation function is used then the entropy input is
         // seed_material = entropy || additional_input
@@ -201,7 +198,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
             // Compute:
             // seed_material = entropy ^ pad(additional_data)
-            xor_into(&mut seed_material[..], &entropy);
+            xor_into(&mut seed_material[..], entropy);
         }
 
         // Set key, V using the update function
@@ -223,12 +220,9 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
         // pad additional input to length SEEDLEN
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
-        match additional_input {
-            Some(v) => {
-                seed_material[..v.len()].copy_from_slice(v);
-                self.ctr_drbg_update(&seed_material);
-            }
-            None => (),
+        if let Some(v) = additional_input {
+            seed_material[..v.len()].copy_from_slice(v);
+            self.ctr_drbg_update(&seed_material);
         };
 
         // Create a cipher to encrypt blocks
@@ -308,7 +302,7 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
         iv[..4].copy_from_slice(&(i as u32).to_be_bytes());
 
         // now we obtain block_size bytes from BCC
-        bcc::<C, SEEDLEN>(&key, &iv, &seed_material, &mut ct);
+        bcc::<C, SEEDLEN>(&key, &iv, seed_material, &mut ct);
 
         // out = out || BCC(K, IV || S)
         let lower = i * block_len;
