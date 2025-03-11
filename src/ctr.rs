@@ -1,5 +1,3 @@
-use std::default;
-
 use aes::cipher::BlockEncrypt;
 use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
 use aes::{Aes128, Aes192, Aes256};
@@ -277,32 +275,15 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     out: &mut [u8],
 ) {
     // TODO: max len of out should be 512 bits
+    // In reality out is always length SEEDLEN
+    assert!(out.len() == SEEDLEN);
 
     /*
      * This first block of code is to make: S = L || N || input || 0x80 || 0x00 ... 0x00
-     * which should be len(s) % block_len = 0
+     * however, we don't know the length of the input at compile time, so instead of allocating
+     * space for this at runtime, we instead modify the bcc function to take the input data and
+     * then encrypt this with BCC and pad during runtime.
      */
-
-    // Compute the length of the input and output as four bytes big endian
-    let input_len: usize = seed_material.iter().map(|block| block.len()).sum();
-    let input_len_bytes = (input_len as u32).to_be_bytes();
-    let output_len_bytes = (out.len() as u32).to_be_bytes();
-
-    // s should be left padded with zeros to match the out-length which is always the seed length
-    let mut s: [u8; 33] = [0; 33]; // TODO massive hack
-    s[..4].copy_from_slice(&input_len_bytes);
-    s[4..8].copy_from_slice(&output_len_bytes);
-
-    // Fill s with all slices within seed_material
-    // This seems like a not-very-rust way to solve this!
-    let mut byte_counter = 0;
-    for block in seed_material {
-        s[8 + byte_counter..8 + byte_counter + block.len()].copy_from_slice(&block);
-        byte_counter += block.len();
-    }
-
-    // Add a 0x80 byte to pad
-    s[8 + byte_counter] = 0x80;
 
     /*
      * This step makes a key 0x00 0x01 0x02 ... 0xXX and uses this to encrypt
@@ -327,7 +308,7 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
         iv[..4].copy_from_slice(&(i as u32).to_be_bytes());
 
         // now we obtain block_size bytes from BCC
-        bcc::<C, SEEDLEN>(&key, &iv, &s, &mut ct);
+        bcc::<C, SEEDLEN>(&key, &iv, &seed_material, &mut ct);
 
         // out = out || BCC(K, IV || S)
         let lower = i * block_len;
@@ -380,42 +361,88 @@ fn xor_into(a: &mut [u8], b: &[u8]) {
 fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     key: &GenericArray<u8, C::KeySize>,
     iv: &[u8],
-    data: &[u8],
+    data: &[&[u8]],
     out: &mut GenericArray<u8, C::BlockSize>,
 ) {
-    // Ensure our chaining value is all zeros
+    // Instead of taking a value S as input, in out implementation we are given
+    // some data of type &[&u8], and we need to create blocks during runtime of
+    // the format
+    //     s = L || N || data.flatten() || 0x80 || 0x00 ... 0x00
+    // right padded with zeros so that there's an exactly block length
+   
+    // Compute the length of the input and output as four bytes big endian
+    let input_len: usize = data.iter().map(|block| block.len()).sum();
+    let block_len = out.len();
+    let input_len_bytes = (input_len as u32).to_be_bytes();
+    let output_len_bytes = (SEEDLEN as u32).to_be_bytes();
+
+    // Ensure our chaining value is all zeros to begin with
     for c in out.iter_mut() {
         *c = 0;
     }
-    let block_len = out.len();
 
     // First we XOR the IV into the chaining value and encrypt
     let cipher = C::new(key);
     xor_into( out, iv);
     cipher.encrypt_block(out);
 
-    // Now we iterate through blocks of the input data
-    let n = data.len().div_ceil(out.len());
-    let mut block = GenericArray::<u8, C::BlockSize>::default();
+    // Now we iterate through all the various data values and make blocks to encrypt
+    let data_len = 4 + 4 + input_len + 1;
+    let n = data_len.div_ceil(block_len);
 
-    // WARNING HACK for padding
-    for i in 0..n {
-        // NOTE: we have not yet padded with zeros, so we handle this here in the
-        // inner loop
-        if i == n - 1 {
-            // first zero everything
-            for b in block.iter_mut() {
-                *b = 0;
-            }
-            // now copy in whatever is left into the block
-            block[..data.len() - i * block_len].copy_from_slice(&data[i * block_len..])
+    // We will perform n block encryptions, filling this block with the input data
+    let mut block = GenericArray::<u8, C::BlockSize>::default();
+    let mut block_bytes_filled = 0;
+    let mut blocks_encrypted: usize = 0; // For debugging... 
+
+    // The first block starts with input_len || block_len
+    // For AES this is 1/2 a block, but for DES this is a full block, so we can always directly copy
+    block[..4].copy_from_slice(&input_len_bytes);
+    block_bytes_filled += 4;
+    block[4..8].copy_from_slice(&output_len_bytes);
+    block_bytes_filled += 4;
+    
+    // Now we need to fill blocks with the bytes in data, we do this by
+    // iterating through the slice
+    for byte in data.iter().flat_map(|slice| slice.iter()) {
+        // When the block is filled, we should perform an encryption and start again
+        if block_bytes_filled == block_len {
+            // Actually do the work
+            xor_into( out, &block);
+            cipher.encrypt_block(out);
+    
+            // update internal helpers after encryption
+            block_bytes_filled = 0;
+            blocks_encrypted += 1;
         }
-        else {
-            block.copy_from_slice(&data[i * block_len..(i + 1) * block_len])
-        }
+
+        // Now add the next byte to the block to encrypt
+        block[block_bytes_filled] = *byte;
+        block_bytes_filled += 1; // update the counter
+    }
+
+    // check if the block is filled after the last loop
+    if block_bytes_filled == block_len {
         xor_into( out, &block);
         cipher.encrypt_block(out);
+        block_bytes_filled = 0;
+        blocks_encrypted += 1;
     }
+
+    // Finally we need to append the byte 0x80 followed by zeros for the
+    // final block
+    assert!(blocks_encrypted == n - 1);
+    block[block_bytes_filled] = 0x80;
+    block_bytes_filled += 1;
+
+    // pad with zeros...
+    for i in block_bytes_filled..block_len {
+        block[i] = 0x00;
+    }
+
+    // Perform the final encryption
+    xor_into( out, &block);
+    cipher.encrypt_block(out);
 }
 
 impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {
@@ -446,7 +473,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for Ctr
 
 // SEEDLEN = BlockSize + KeySize
 #[cfg(feature = "tdea-ctr")]
-pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3, { 8 + 21 }>;
+pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3, { 21 + 8 }>;
 
 #[cfg(feature = "aes-ctr")]
 pub type AesCtr128Drbg = super::CtrDrbg<Aes128, { 16 + 16 }>;

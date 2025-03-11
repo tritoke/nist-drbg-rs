@@ -130,14 +130,29 @@ fn test_aes_ctr_df() {
     println!("{}", buf == returned_bytes);
 }
 
+fn test_aes_ctr_df_ps() {
+    let entropy: &[u8] =
+        &hex::decode("e10bc28a0bfddfe93e7f5186e0ca0b3b").unwrap();
+    let nonce: &[u8] = &hex::decode("9ff477c18673840d").unwrap();
+    let personalization_string = &hex::decode("c980dedf9882ed4464a674967868f143").unwrap();
+    let returned_bytes: &[u8] = &hex::decode("35b00df6269b6641fd4ccb354d56d851de7a77527e034d60c9e1a9e1525a30ed361fded89d3dccb978d4e7a9e100ebf63062735b52831c6f0a1d3e1bdc5ebc72").unwrap();
+    let mut drbg = AesCtr128Drbg::new(entropy, nonce, personalization_string, true).unwrap();
+
+    let mut buf: [u8; 64] = [0; 64];
+    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.random_bytes(&mut buf);
+    println!("{}", buf == returned_bytes);
+}
+
 fn main() {
-    // test_hash();
-    // test_hash_add();
-    // test_hmac();
-    // test_hmac_add();
+    test_hash();
+    test_hash_add();
+    test_hmac();
+    test_hmac_add();
     // test_tdea_ctr();
     // test_tdea_ctr_add();
     test_aes_ctr();
     test_aes_ctr_add();
     test_aes_ctr_df();
+    test_aes_ctr_df_ps();
 }
