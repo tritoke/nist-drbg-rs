@@ -363,7 +363,7 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     // the format
     //     s = L || N || data.flatten() || 0x80 || 0x00 ... 0x00
     // right padded with zeros so that there's an exactly block length
-   
+
     // Compute the length of the input and output as four bytes big endian
     let input_len: usize = data.iter().map(|block| block.len()).sum();
     let block_len = out.len();
@@ -377,7 +377,7 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
 
     // First we XOR the IV into the chaining value and encrypt
     let cipher = C::new(key);
-    xor_into( out, iv);
+    xor_into(out, iv);
     cipher.encrypt_block(out);
 
     // Now we iterate through all the various data values and make blocks to encrypt
@@ -395,16 +395,16 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     block_bytes_filled += 4;
     block[4..8].copy_from_slice(&output_len_bytes);
     block_bytes_filled += 4;
-    
+
     // Now we need to fill blocks with the bytes in data, we do this by
     // iterating through the slice
     for byte in data.iter().flat_map(|slice| slice.iter()) {
         // When the block is filled, we should perform an encryption and start again
         if block_bytes_filled == block_len {
             // Actually do the work
-            xor_into( out, &block);
+            xor_into(out, &block);
             cipher.encrypt_block(out);
-    
+
             // update internal helpers after encryption
             block_bytes_filled = 0;
             blocks_encrypted += 1;
@@ -417,7 +417,7 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
 
     // check if the block is filled after the last loop
     if block_bytes_filled == block_len {
-        xor_into( out, &block);
+        xor_into(out, &block);
         cipher.encrypt_block(out);
         block_bytes_filled = 0;
         blocks_encrypted += 1;
@@ -435,7 +435,7 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     }
 
     // Perform the final encryption
-    xor_into( out, &block);
+    xor_into(out, &block);
     cipher.encrypt_block(out);
 }
 

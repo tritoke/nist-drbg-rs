@@ -120,8 +120,7 @@ fn test_aes_ctr_add() {
 }
 
 fn test_aes_ctr_df() {
-    let entropy: &[u8] =
-        &hex::decode("890eb067acf7382eff80b0c73bc872c6").unwrap();
+    let entropy: &[u8] = &hex::decode("890eb067acf7382eff80b0c73bc872c6").unwrap();
     let nonce: &[u8] = &hex::decode("aad471ef3ef1d203").unwrap();
     let returned_bytes: &[u8] = &hex::decode("a5514ed7095f64f3d0d3a5760394ab42062f373a25072a6ea6bcfd8489e94af6cf18659fea22ed1ca0a9e33f718b115ee536b12809c31b72b08ddd8be1910fa3").unwrap();
     let mut drbg = AesCtr128Drbg::new(entropy, nonce, &[], true).unwrap();
@@ -133,8 +132,7 @@ fn test_aes_ctr_df() {
 }
 
 fn test_aes_ctr_df_ps() {
-    let entropy: &[u8] =
-        &hex::decode("e10bc28a0bfddfe93e7f5186e0ca0b3b").unwrap();
+    let entropy: &[u8] = &hex::decode("e10bc28a0bfddfe93e7f5186e0ca0b3b").unwrap();
     let nonce: &[u8] = &hex::decode("9ff477c18673840d").unwrap();
     let personalization_string = &hex::decode("c980dedf9882ed4464a674967868f143").unwrap();
     let returned_bytes: &[u8] = &hex::decode("35b00df6269b6641fd4ccb354d56d851de7a77527e034d60c9e1a9e1525a30ed361fded89d3dccb978d4e7a9e100ebf63062735b52831c6f0a1d3e1bdc5ebc72").unwrap();
