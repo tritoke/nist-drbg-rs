@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use nist_drbg_rs::{Drbg, Sha1Drbg};
+use nist_drbg_rs::{
+    Drbg, Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
+};
 
 #[derive(Debug, Clone)]
 pub struct TestInformation {
@@ -17,13 +19,13 @@ pub struct TestInformation {
 impl Default for TestInformation {
     fn default() -> Self {
         TestInformation {
-            algorithm_name: String::new(), // Default to an empty string
-            prediction_resistance: false,  // Default to false
-            entropy_input_len: 0,          // Default to 0
-            nonce_len: 0,                  // Default to 0
-            personalization_string_len: 0, // Default to 0
-            additional_input_len: 0,       // Default to 0
-            returned_bits_len: 0,          // Default to 0
+            algorithm_name: String::new(),
+            prediction_resistance: false,
+            entropy_input_len: 0,
+            nonce_len: 0,
+            personalization_string_len: 0,
+            additional_input_len: 0,
+            returned_bits_len: 0,
         }
     }
 }
@@ -161,55 +163,104 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -
     let mut generated_bytes = vec![0; info.returned_bits_len / 8];
 
     // Create the correct Drbg from the algorithm name
-    match info.algorithm_name.as_str() {
-        "SHA-1" => {
-            let mut drbg = Sha1Drbg::new(
+    let mut drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
+        "SHA-1" => Box::new(
+            Sha1Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
             )
-            .unwrap();
+            .unwrap(),
+        ),
+        "SHA-224" => Box::new(
+            Sha224Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-256" => Box::new(
+            Sha256Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-384" => Box::new(
+            Sha384Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-512" => Box::new(
+            Sha512Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-512/224" => Box::new(
+            Sha512_224Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-512/256" => Box::new(
+            Sha512_256Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        _ => panic!("Unexpected algorithm: {{info.algorithm_name.as_str():?}}"),
+    };
 
-            // For pr_false we reseed before requesting any bytes at all
-            if reseed {
-                drbg.reseed_extra(
-                    &question.entropy_input_reseed,
-                    &question.additional_input_reseed,
-                )
-                .unwrap()
-            }
-
-            // When we use predicition resistence, the additional bytes are used for reseeding
-            // and not the generation
-            if info.prediction_resistance {
-                drbg.reseed_extra(&question.entropy_input_pr_1, &question.additional_input_1)
-                    .unwrap();
-                drbg.random_bytes(&mut generated_bytes).unwrap();
-            }
-            // For all other cases, additional bytes are used in the reseeding itself
-            else {
-                drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_1)
-                    .unwrap();
-            }
-
-            // When we use predicition resistence, the additional bytes are used for reseeding
-            // and not the generation
-            if info.prediction_resistance {
-                drbg.reseed_extra(&question.entropy_input_pr_2, &question.additional_input_2)
-                    .unwrap();
-                drbg.random_bytes(&mut generated_bytes).unwrap();
-            }
-            // For all other cases, additional bytes are used in the reseeding itself
-            else {
-                drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_2)
-                    .unwrap();
-            }
-
-            // Ensure the bytes match
-            passed &= question.returned_bytes == generated_bytes;
-        }
-        _ => (),
+    // For pr_false we reseed before requesting any bytes at all
+    if reseed {
+        drbg.reseed_extra(
+            &question.entropy_input_reseed,
+            &question.additional_input_reseed,
+        )
+        .unwrap()
     }
+
+    // When we use predicition resistence, the additional bytes are used for reseeding
+    // and not the generation
+    if info.prediction_resistance {
+        drbg.reseed_extra(&question.entropy_input_pr_1, &question.additional_input_1)
+            .unwrap();
+        drbg.random_bytes(&mut generated_bytes).unwrap();
+    }
+    // For all other cases, additional bytes are used in the reseeding itself
+    else {
+        drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_1)
+            .unwrap();
+    }
+
+    // When we use predicition resistence, the additional bytes are used for reseeding
+    // and not the generation
+    if info.prediction_resistance {
+        drbg.reseed_extra(&question.entropy_input_pr_2, &question.additional_input_2)
+            .unwrap();
+        drbg.random_bytes(&mut generated_bytes).unwrap();
+    }
+    // For all other cases, additional bytes are used in the reseeding itself
+    else {
+        drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_2)
+            .unwrap();
+    }
+
+    // Ensure the bytes match
+    passed &= question.returned_bytes == generated_bytes;
+
     passed
 }
 

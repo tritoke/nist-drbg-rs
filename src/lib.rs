@@ -63,7 +63,7 @@ impl Error for SeedError {}
 // random_bytes (generate in the NIST spec)
 // NOTE: in the NIST api you request a number of BITS, but this API fills a buffer of bytes
 // again, additional_input are optional bytes to feeding into the generate function
-pub trait Drbg: Sized {
+pub trait Drbg {
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError>;
     fn reseed_extra(&mut self, entropy: &[u8], additional_input: &[u8]) -> Result<(), SeedError>;
 
