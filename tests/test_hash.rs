@@ -34,6 +34,8 @@ pub struct Question {
     nonce: Vec<u8>,
     personalization_string: Vec<u8>,
     entropy_input_reseed: Vec<u8>,
+    entropy_input_pr_1: Vec<u8>,
+    entropy_input_pr_2: Vec<u8>,
     additional_input_reseed: Vec<u8>,
     additional_input_1: Vec<u8>,
     additional_input_2: Vec<u8>,
@@ -48,6 +50,8 @@ impl Default for Question {
             nonce: Vec::new(),
             personalization_string: Vec::new(),
             entropy_input_reseed: Vec::new(),
+            entropy_input_pr_1: Vec::new(),
+            entropy_input_pr_2: Vec::new(),
             additional_input_reseed: Vec::new(),
             additional_input_1: Vec::new(),
             additional_input_2: Vec::new(),
@@ -91,6 +95,7 @@ fn parse_test_information(block: &str, info: &mut TestInformation) {
 fn parse_question_block(block: &str, question: &mut Question) {
     // We need to parse two fields with the same name in the KAT file
     let mut addition_input_seen = false;
+    let mut entropy_pr_seen = false;
 
     for line in block.lines() {
         let (name, value) = line.split_once(" = ").unwrap();
@@ -116,6 +121,14 @@ fn parse_question_block(block: &str, question: &mut Question) {
                     addition_input_seen = true;
                 }
             }
+            "EntropyInputPR" => {
+                if entropy_pr_seen {
+                    question.entropy_input_pr_2 = hex::decode(value).unwrap();
+                } else {
+                    question.entropy_input_pr_1 = hex::decode(value).unwrap();
+                    entropy_pr_seen = true;
+                }
+            }
             "ReturnedBits" => question.returned_bytes = hex::decode(value).unwrap(),
             _ => panic!("Unexpected key: {name:?}"),
         }
@@ -138,6 +151,12 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -
         passed &= question.additional_input_reseed.len() * 8 == info.additional_input_len;
     }
 
+    // When prediciton resistance is required we have two other entropy inputs
+    if info.prediction_resistance {
+        passed &= question.entropy_input_pr_1.len() * 8 == info.entropy_input_len;
+        passed &= question.entropy_input_pr_2.len() * 8 == info.entropy_input_len;
+    }
+
     // buffer to read bytes into
     let mut generated_bytes = vec![0; info.returned_bits_len / 8];
 
@@ -153,30 +172,40 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -
 
             // For pr_false we reseed before requesting any bytes at all
             if reseed {
-                if question.additional_input_reseed.len() == 0 {
-                    drbg.reseed_extra(
-                        &question.entropy_input_reseed,
-                        &question.additional_input_reseed,
-                    )
-                    .unwrap();
-                } else {
-                    drbg.reseed(&question.entropy_input_reseed).unwrap();
-                }
+                drbg.reseed_extra(
+                    &question.entropy_input_reseed,
+                    &question.additional_input_reseed,
+                )
+                .unwrap()
             }
 
-            // Generate random bytes in two calls
-            if info.additional_input_len == 0 {
+            // When we use predicition resistence, the additional bytes are used for reseeding
+            // and not the generation
+            if info.prediction_resistance {
+                drbg.reseed_extra(&question.entropy_input_pr_1, &question.additional_input_1)
+                    .unwrap();
                 drbg.random_bytes(&mut generated_bytes).unwrap();
-                drbg.random_bytes(&mut generated_bytes).unwrap();
-            } else {
+            }
+            // For all other cases, additional bytes are used in the reseeding itself
+            else {
                 drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_1)
                     .unwrap();
+            }
+
+            // When we use predicition resistence, the additional bytes are used for reseeding
+            // and not the generation
+            if info.prediction_resistance {
+                drbg.reseed_extra(&question.entropy_input_pr_2, &question.additional_input_2)
+                    .unwrap();
+                drbg.random_bytes(&mut generated_bytes).unwrap();
+            }
+            // For all other cases, additional bytes are used in the reseeding itself
+            else {
                 drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_2)
                     .unwrap();
             }
 
             // Ensure the bytes match
-            dbg!(question.returned_bytes == generated_bytes);
             passed &= question.returned_bytes == generated_bytes;
         }
         _ => (),
@@ -186,7 +215,7 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -
 
 fn run_hash_kat(name: &str) {
     // Whether or not to reseed
-    let reseed = !name.contains("no_reseed");
+    let reseed = name.contains("pr_false");
 
     let response_file = Path::new("assets").join(name).join("Hash_DRBG.rsp");
     let mut contents = std::fs::read_to_string(response_file).unwrap();
@@ -222,4 +251,9 @@ fn test_hash_kat_no_reseed() {
 #[test]
 fn test_hash_kat_pr_false() {
     run_hash_kat("drbgvectors_pr_false");
+}
+
+#[test]
+fn test_hash_kat_pr_true() {
+    run_hash_kat("drbgvectors_pr_true");
 }

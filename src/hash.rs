@@ -93,14 +93,16 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         }
 
         if let Some(additional_input) = additional_input {
-            // w = Hash(0x02 || V || additional_input)
-            let w = H::new_with_prefix([0x02])
-                .chain_update(self.value)
-                .chain_update(additional_input)
-                .finalize();
+            if !additional_input.is_empty() {
+                // w = Hash(0x02 || V || additional_input)
+                let w = H::new_with_prefix([0x02])
+                    .chain_update(self.value)
+                    .chain_update(additional_input)
+                    .finalize();
 
-            // V = V + w mod 2^seedlen
-            add_into(&mut self.value, &w);
+                // V = V + w mod 2^seedlen
+                add_into(&mut self.value, &w);
+            }
         }
 
         // Fill the buffer with bytes using hashgen and update V
