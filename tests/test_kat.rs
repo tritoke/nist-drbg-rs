@@ -18,7 +18,6 @@ pub struct TestInformation {
     returned_bits_len: usize,
 }
 
-// Implementing the Default trait for TestInformation
 impl Default for TestInformation {
     fn default() -> Self {
         TestInformation {
@@ -48,7 +47,6 @@ pub struct Question {
     returned_bytes: Vec<u8>,
 }
 
-// Implementing the Default trait for Question
 impl Default for Question {
     fn default() -> Self {
         Question {
@@ -92,7 +90,6 @@ fn parse_test_information(block: &str, info: &mut TestInformation) {
                 }
                 "AdditionalInputLen" => info.additional_input_len = value.parse().unwrap(),
                 "ReturnedBitsLen" => info.returned_bits_len = value.parse().unwrap(),
-
                 _ => panic!("Unexpected key: {name:?}"),
             }
         }
@@ -368,35 +365,28 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
     // When we use predicition resistence, the additional bytes are used for reseeding
     // and not the generation
     if info.prediction_resistance {
+        // Request the first chunk of bytes
         drbg.reseed_extra(&question.entropy_input_pr_1, &question.additional_input_1)
             .unwrap();
         drbg.random_bytes(&mut generated_bytes).unwrap();
-    }
-    // For all other cases, additional bytes are used in the reseeding itself
-    else {
-        drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_1)
-            .unwrap();
-    }
 
-    // When we use predicition resistence, the additional bytes are used for reseeding
-    // and not the generation
-    if info.prediction_resistance {
+        // Request the second chunk of bytes
         drbg.reseed_extra(&question.entropy_input_pr_2, &question.additional_input_2)
             .unwrap();
         drbg.random_bytes(&mut generated_bytes).unwrap();
     }
     // For all other cases, additional bytes are used in the reseeding itself
     else {
+        // Request the first chunk of bytes
+        drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_1)
+            .unwrap();
+        // Request the second chunk of bytes
         drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_2)
             .unwrap();
     }
 
     // Ensure the bytes match
     passed &= question.returned_bytes == generated_bytes;
-    if question.returned_bytes != generated_bytes {
-        println!("{:?}", info);
-        dbg!(question.count, question.returned_bytes == generated_bytes);
-    }
     passed
 }
 
@@ -404,18 +394,19 @@ fn run_kat_test(kat_type: &str, name: &str) {
     // Whether or not to explicitly reseed
     let reseed = kat_type.contains("pr_false");
 
+    // Load the KAT file as a string
     let response_file = Path::new("assets")
         .join(kat_type)
         .join(format!("{}_DRBG.rsp", name));
-    let mut contents = std::fs::read_to_string(response_file).unwrap();
-    contents.retain(|c| c != '\r');
+    let contents = std::fs::read_to_string(response_file).unwrap();
 
-    let mut test_passed: bool;
+    // Create structs which contain the test information and question data
     let mut info_block = TestInformation::default();
     let mut question_block = Question::default();
 
+    // Iterate through each KAT block
     for block in contents.split("\n\n") {
-        // Ignore the metadata lines
+        // Ignore the metadata or empty blocks
         if block.starts_with('#') || block.is_empty() {
             continue;
         }
@@ -423,56 +414,65 @@ fn run_kat_test(kat_type: &str, name: &str) {
         else if block.starts_with('[') {
             parse_test_information(block, &mut info_block);
         }
-        // Otherwise perform a test
+        // Subsequent blocks are then question blocks which we parse and then test
         else {
             parse_question_block(block, &mut question_block);
-            test_passed = perform_kat_test(&question_block, &info_block, reseed, name);
+            let test_passed = perform_kat_test(&question_block, &info_block, reseed, name);
             assert!(test_passed);
         }
     }
 }
 
 #[test]
+/// Test KAT values for Hash Drbg with no reseeding
 fn test_hash_kat_no_reseed() {
     run_kat_test("drbgvectors_no_reseed", "Hash");
 }
 
 #[test]
+/// Test KAT values for Hash Drbg with explicit reseeding
 fn test_hash_kat_pr_false() {
     run_kat_test("drbgvectors_pr_false", "Hash");
 }
 
 #[test]
+/// Test KAT values for Hash Drbg with reseeding before extraction
 fn test_hash_kat_pr_true() {
     run_kat_test("drbgvectors_pr_true", "Hash");
 }
 
 #[test]
+/// Test KAT values for HMAC Drbg with no reseeding
 fn test_hmac_kat_no_reseed() {
     run_kat_test("drbgvectors_no_reseed", "HMAC");
 }
 
 #[test]
+/// Test KAT values for HMAC Drbg with reseeding before extraction
 fn test_hmac_kat_pr_false() {
     run_kat_test("drbgvectors_pr_false", "HMAC");
 }
 
 #[test]
+/// Test KAT values for HMAC Drbg with reseeding before extraction
 fn test_hmac_kat_pr_true() {
     run_kat_test("drbgvectors_pr_true", "HMAC");
 }
 
 #[test]
+/// Test KAT values for CTR Drbg with no reseeding
 fn test_ctr_kat_no_reseed() {
     run_kat_test("drbgvectors_no_reseed", "CTR");
 }
 
 #[test]
+/// Test KAT values for CTR Drbg with reseeding before extraction
 fn test_ctr_kat_pr_false() {
     run_kat_test("drbgvectors_pr_false", "CTR");
 }
 
 #[test]
+/// Test KAT values for CTR Drbg with reseeding before extraction
 fn test_ctr_kat_pr_true() {
     run_kat_test("drbgvectors_pr_true", "CTR");
 }
