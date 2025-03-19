@@ -188,13 +188,20 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         if self.reseed_counter > 99999 {
             return Err(SeedError::CounterExhausted);
         }
-
-        // pad additional input to length SEEDLEN
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
 
+        // Deal with the additional input, if it is not empty
         let additional_input = additional_input.unwrap_or(b"");
         if !additional_input.is_empty() {
-            seed_material[..additional_input.len()].copy_from_slice(additional_input);
+            // When a derivation function is used, the seed material is generated
+            // directly from the additional data
+            if self.derivation_function {
+                ctr_drbg_df::<C, SEEDLEN>(&[additional_input], &mut seed_material[..]);
+            }
+            // Otherwise we simply pad the additional input to the length of the seed
+            else {
+                seed_material[..additional_input.len()].copy_from_slice(additional_input);
+            }
             self.ctr_drbg_update(&seed_material);
         }
 

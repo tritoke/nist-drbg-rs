@@ -393,8 +393,7 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
 
     // Ensure the bytes match
     passed &= question.returned_bytes == generated_bytes;
-
-    if !passed {
+    if question.returned_bytes != generated_bytes {
         println!("{:?}", info);
         dbg!(question.count, question.returned_bytes == generated_bytes);
     }
