@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use nist_drbg_rs::{Drbg, Sha1Drbg};
 
 #[derive(Debug, Clone)]
@@ -31,9 +33,11 @@ pub struct Question {
     entropy_input: Vec<u8>,
     nonce: Vec<u8>,
     personalization_string: Vec<u8>,
+    entropy_input_reseed: Vec<u8>,
+    additional_input_reseed: Vec<u8>,
     additional_input_1: Vec<u8>,
     additional_input_2: Vec<u8>,
-    returned_bits: Vec<u8>,
+    returned_bytes: Vec<u8>,
 }
 
 // Implementing the Default trait for Question
@@ -43,9 +47,11 @@ impl Default for Question {
             entropy_input: Vec::new(),
             nonce: Vec::new(),
             personalization_string: Vec::new(),
+            entropy_input_reseed: Vec::new(),
+            additional_input_reseed: Vec::new(),
             additional_input_1: Vec::new(),
             additional_input_2: Vec::new(),
-            returned_bits: Vec::new(),
+            returned_bytes: Vec::new(),
         }
     }
 }
@@ -98,7 +104,10 @@ fn parse_question_block(block: &str, question: &mut Question) {
             "PersonalizationString" => {
                 question.personalization_string = hex::decode(value).unwrap()
             }
-            "ReturnedBits" => question.returned_bits = hex::decode(value).unwrap(),
+            "EntropyInputReseed" => question.entropy_input_reseed = hex::decode(value).unwrap(),
+            "AdditionalInputReseed" => {
+                question.additional_input_reseed = hex::decode(value).unwrap()
+            }
             "AdditionalInput" => {
                 if addition_input_seen {
                     question.additional_input_2 = hex::decode(value).unwrap();
@@ -107,12 +116,13 @@ fn parse_question_block(block: &str, question: &mut Question) {
                     addition_input_seen = true;
                 }
             }
+            "ReturnedBits" => question.returned_bytes = hex::decode(value).unwrap(),
             _ => panic!("Unexpected key: {name:?}"),
         }
     }
 }
 
-fn perform_kat_test(question: &Question, info: &TestInformation) -> bool {
+fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -> bool {
     let mut passed = true;
     // Ensure all lengths match
     passed &= question.entropy_input.len() * 8 == info.entropy_input_len;
@@ -120,7 +130,13 @@ fn perform_kat_test(question: &Question, info: &TestInformation) -> bool {
     passed &= question.personalization_string.len() * 8 == info.personalization_string_len;
     passed &= question.additional_input_1.len() * 8 == info.additional_input_len;
     passed &= question.additional_input_2.len() * 8 == info.additional_input_len;
-    passed &= question.returned_bits.len() * 8 == info.returned_bits_len;
+    passed &= question.returned_bytes.len() * 8 == info.returned_bits_len;
+
+    // For the pr_false tests, we have reseeding values which we must check
+    if reseed {
+        passed &= question.entropy_input_reseed.len() * 8 == info.entropy_input_len;
+        passed &= question.additional_input_reseed.len() * 8 == info.additional_input_len;
+    }
 
     // buffer to read bytes into
     let mut generated_bytes = vec![0; info.returned_bits_len / 8];
@@ -135,9 +151,20 @@ fn perform_kat_test(question: &Question, info: &TestInformation) -> bool {
             )
             .unwrap();
 
-            // Generate random bytes
-            // When no additional bytes are used, we just call the function
-            // twice
+            // For pr_false we reseed before requesting any bytes at all
+            if reseed {
+                if question.additional_input_reseed.len() == 0 {
+                    drbg.reseed_extra(
+                        &question.entropy_input_reseed,
+                        &question.additional_input_reseed,
+                    )
+                    .unwrap();
+                } else {
+                    drbg.reseed(&question.entropy_input_reseed).unwrap();
+                }
+            }
+
+            // Generate random bytes in two calls
             if info.additional_input_len == 0 {
                 drbg.random_bytes(&mut generated_bytes).unwrap();
                 drbg.random_bytes(&mut generated_bytes).unwrap();
@@ -149,18 +176,20 @@ fn perform_kat_test(question: &Question, info: &TestInformation) -> bool {
             }
 
             // Ensure the bytes match
-            passed &= question.returned_bits == generated_bytes;
+            dbg!(question.returned_bytes == generated_bytes);
+            passed &= question.returned_bytes == generated_bytes;
         }
         _ => (),
     }
     passed
 }
 
-#[test]
-fn test_hash_kat() {
-    // TODO: generalise this with a name variable for file
-    let mut contents =
-        std::fs::read_to_string("assets/drbgvectors_no_reseed/Hash_DRBG.rsp").unwrap();
+fn run_hash_kat(name: &str) {
+    // Whether or not to reseed
+    let reseed = !name.contains("no_reseed");
+
+    let response_file = Path::new("assets").join(name).join("Hash_DRBG.rsp");
+    let mut contents = std::fs::read_to_string(response_file).unwrap();
     contents.retain(|c| c != '\r');
 
     let mut test_passed: bool;
@@ -168,11 +197,6 @@ fn test_hash_kat() {
     let mut question_block = Question::default();
 
     for block in contents.split("\n\n") {
-        // TODO: do we need this?
-        if block.is_empty() {
-            continue;
-        }
-
         // Ignore the metadata lines
         if block.starts_with('#') {
             continue;
@@ -184,8 +208,18 @@ fn test_hash_kat() {
         // Otherwise perform a test
         else {
             parse_question_block(block, &mut question_block);
-            test_passed = perform_kat_test(&question_block, &info_block);
+            test_passed = perform_kat_test(&question_block, &info_block, reseed);
             assert!(test_passed);
         }
     }
+}
+
+#[test]
+fn test_hash_kat_no_reseed() {
+    run_hash_kat("drbgvectors_no_reseed");
+}
+
+#[test]
+fn test_hash_kat_pr_false() {
+    run_hash_kat("drbgvectors_pr_false");
 }
