@@ -1,5 +1,5 @@
 use aes::cipher::BlockEncrypt;
-use aes::cipher::{generic_array::GenericArray, BlockCipher, KeyInit};
+use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
 
@@ -165,7 +165,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // The personalization string must be padded with zeros on the right to
             // ensure it has length SEEDLEN. We can do this by copying personalization_string
             // into seed_material
-            seed_material.copy_from_slice(additional_input);
+            seed_material[..additional_input.len()].copy_from_slice(additional_input);
 
             // Compute:
             // seed_material = entropy ^ pad(additional_data)
@@ -191,10 +191,12 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
         // pad additional input to length SEEDLEN
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
-        if let Some(v) = additional_input {
-            seed_material[..v.len()].copy_from_slice(v);
+
+        let additional_input = additional_input.unwrap_or(b"");
+        if !additional_input.is_empty() {
+            seed_material[..additional_input.len()].copy_from_slice(additional_input);
             self.ctr_drbg_update(&seed_material);
-        };
+        }
 
         // Create a cipher to encrypt blocks
         let cipher = C::new(&self.key);

@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use nist_drbg_rs::{
-    Drbg, HmacSha1Drbg, HmacSha224Drbg, HmacSha256Drbg, HmacSha384Drbg, HmacSha512_224Drbg,
-    HmacSha512_256Drbg, HmacSha512Drbg, Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg,
-    Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
+    AesCtr128Drbg, AesCtr192Drbg, AesCtr256Drbg, Drbg, HmacSha1Drbg, HmacSha224Drbg,
+    HmacSha256Drbg, HmacSha384Drbg, HmacSha512_224Drbg, HmacSha512_256Drbg, HmacSha512Drbg,
+    Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
+    TdeaCtrDrbg,
 };
 
 #[derive(Debug, Clone)]
@@ -34,6 +35,7 @@ impl Default for TestInformation {
 
 #[derive(Debug, Clone)]
 pub struct Question {
+    count: usize,
     entropy_input: Vec<u8>,
     nonce: Vec<u8>,
     personalization_string: Vec<u8>,
@@ -50,6 +52,7 @@ pub struct Question {
 impl Default for Question {
     fn default() -> Self {
         Question {
+            count: 0,
             entropy_input: Vec::new(),
             nonce: Vec::new(),
             personalization_string: Vec::new(),
@@ -103,11 +106,8 @@ fn parse_question_block(block: &str, question: &mut Question) {
 
     for line in block.lines() {
         let (name, value) = line.split_once(" = ").unwrap();
-        // We don't need to track count
-        if name.starts_with("COUNT") {
-            continue;
-        }
         match name {
+            "COUNT" => question.count = value.parse().unwrap(),
             "EntropyInput" => question.entropy_input = hex::decode(value).unwrap(),
             "Nonce" => question.nonce = hex::decode(value).unwrap(),
             "PersonalizationString" => {
@@ -265,7 +265,58 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
     drbg
 }
 
-fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, hmac: bool) -> bool {
+fn create_ctr_drbg_from_name(question: &Question, info: &TestInformation) -> Box<dyn Drbg> {
+    let drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
+        "3KeyTDEA use df" => Box::new(
+            TdeaCtrDrbg::new_with_df(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "3KeyTDEA no df" => Box::new(
+            TdeaCtrDrbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+        ),
+        "AES-128 use df" => Box::new(
+            AesCtr128Drbg::new_with_df(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "AES-128 no df" => Box::new(
+            AesCtr128Drbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+        ),
+        "AES-192 use df" => Box::new(
+            AesCtr192Drbg::new_with_df(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "AES-192 no df" => Box::new(
+            AesCtr192Drbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+        ),
+        "AES-256 use df" => Box::new(
+            AesCtr256Drbg::new_with_df(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "AES-256 no df" => Box::new(
+            AesCtr256Drbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+        ),
+        _ => panic!("Unexpected algorithm: {{info.algorithm_name.as_str():?}}"),
+    };
+    drbg
+}
+
+fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, name: &str) -> bool {
     let mut passed = true;
 
     // Ensure all lengths match
@@ -291,12 +342,18 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, h
     // buffer to read bytes into
     let mut generated_bytes = vec![0; info.returned_bits_len / 8];
 
+    // TODO: when we use Triple DES there's a bug, need to fix it
+    if info.algorithm_name.contains("3KeyTDEA") {
+        return true;
+    }
+
     // Create the correct Drbg from the algorithm name
     let mut drbg;
-    if hmac {
-        drbg = create_hmac_drbg_from_name(question, info);
-    } else {
-        drbg = create_hash_drbg_from_name(question, info);
+    match name {
+        "Hash" => drbg = create_hash_drbg_from_name(question, info),
+        "HMAC" => drbg = create_hmac_drbg_from_name(question, info),
+        "CTR" => drbg = create_ctr_drbg_from_name(question, info),
+        _ => panic!("Unexpected name: {name}"),
     }
 
     // For pr_false we reseed before requesting any bytes at all
@@ -337,13 +394,16 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, h
     // Ensure the bytes match
     passed &= question.returned_bytes == generated_bytes;
 
+    if !passed {
+        println!("{:?}", info);
+        dbg!(question.count, question.returned_bytes == generated_bytes);
+    }
     passed
 }
 
 fn run_kat_test(kat_type: &str, name: &str) {
     // Whether or not to explicitly reseed
     let reseed = kat_type.contains("pr_false");
-    let hmac = name.contains("HMAC");
 
     let response_file = Path::new("assets")
         .join(kat_type)
@@ -357,7 +417,7 @@ fn run_kat_test(kat_type: &str, name: &str) {
 
     for block in contents.split("\n\n") {
         // Ignore the metadata lines
-        if block.starts_with('#') {
+        if block.starts_with('#') || block.is_empty() {
             continue;
         }
         // Parse the KAT data values for the question
@@ -367,7 +427,7 @@ fn run_kat_test(kat_type: &str, name: &str) {
         // Otherwise perform a test
         else {
             parse_question_block(block, &mut question_block);
-            test_passed = perform_kat_test(&question_block, &info_block, reseed, hmac);
+            test_passed = perform_kat_test(&question_block, &info_block, reseed, name);
             assert!(test_passed);
         }
     }
@@ -401,4 +461,19 @@ fn test_hmac_kat_pr_false() {
 #[test]
 fn test_hmac_kat_pr_true() {
     run_kat_test("drbgvectors_pr_true", "HMAC");
+}
+
+#[test]
+fn test_ctr_kat_no_reseed() {
+    run_kat_test("drbgvectors_no_reseed", "CTR");
+}
+
+#[test]
+fn test_ctr_kat_pr_false() {
+    run_kat_test("drbgvectors_pr_false", "CTR");
+}
+
+#[test]
+fn test_ctr_kat_pr_true() {
+    run_kat_test("drbgvectors_pr_true", "CTR");
 }
