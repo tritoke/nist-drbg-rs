@@ -119,7 +119,9 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
 
         // If additional_input is given, run HMAC_update
         if let Some(additional_input) = additional_input {
-            self.hmac_drbg_update(&[additional_input])
+            if !additional_input.is_empty() {
+                self.hmac_drbg_update(&[additional_input])
+            }
         }
 
         // The random bytes we return are the output of repeatedly

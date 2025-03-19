@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{error::Error, fmt::Display, marker::Sized};
+use core::{error::Error, fmt::Display};
 
 // Should we feature lock this? We don't need it for Hmac, but will for Hash
 // and CTR

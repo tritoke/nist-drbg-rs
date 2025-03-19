@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use nist_drbg_rs::{
-    Drbg, Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
+    Drbg, HmacSha1Drbg, HmacSha224Drbg, HmacSha256Drbg, HmacSha384Drbg, HmacSha512_224Drbg,
+    HmacSha512_256Drbg, HmacSha512Drbg, Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg,
+    Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
 };
 
 #[derive(Debug, Clone)]
@@ -137,33 +139,8 @@ fn parse_question_block(block: &str, question: &mut Question) {
     }
 }
 
-fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -> bool {
-    let mut passed = true;
-    // Ensure all lengths match
-    passed &= question.entropy_input.len() * 8 == info.entropy_input_len;
-    passed &= question.nonce.len() * 8 == info.nonce_len;
-    passed &= question.personalization_string.len() * 8 == info.personalization_string_len;
-    passed &= question.additional_input_1.len() * 8 == info.additional_input_len;
-    passed &= question.additional_input_2.len() * 8 == info.additional_input_len;
-    passed &= question.returned_bytes.len() * 8 == info.returned_bits_len;
-
-    // For the pr_false tests, we have reseeding values which we must check
-    if reseed {
-        passed &= question.entropy_input_reseed.len() * 8 == info.entropy_input_len;
-        passed &= question.additional_input_reseed.len() * 8 == info.additional_input_len;
-    }
-
-    // When prediciton resistance is required we have two other entropy inputs
-    if info.prediction_resistance {
-        passed &= question.entropy_input_pr_1.len() * 8 == info.entropy_input_len;
-        passed &= question.entropy_input_pr_2.len() * 8 == info.entropy_input_len;
-    }
-
-    // buffer to read bytes into
-    let mut generated_bytes = vec![0; info.returned_bits_len / 8];
-
-    // Create the correct Drbg from the algorithm name
-    let mut drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
+fn create_hash_drbg_from_name(question: &Question, info: &TestInformation) -> Box<dyn Drbg> {
+    let drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
         "SHA-1" => Box::new(
             Sha1Drbg::new(
                 &question.entropy_input,
@@ -222,6 +199,105 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -
         ),
         _ => panic!("Unexpected algorithm: {{info.algorithm_name.as_str():?}}"),
     };
+    drbg
+}
+
+fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Box<dyn Drbg> {
+    let drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
+        "SHA-1" => Box::new(
+            HmacSha1Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-224" => Box::new(
+            HmacSha224Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-256" => Box::new(
+            HmacSha256Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-384" => Box::new(
+            HmacSha384Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-512" => Box::new(
+            HmacSha512Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-512/224" => Box::new(
+            HmacSha512_224Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        "SHA-512/256" => Box::new(
+            HmacSha512_256Drbg::new(
+                &question.entropy_input,
+                &question.nonce,
+                &question.personalization_string,
+            )
+            .unwrap(),
+        ),
+        _ => panic!("Unexpected algorithm: {{info.algorithm_name.as_str():?}}"),
+    };
+    drbg
+}
+
+fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, hmac: bool) -> bool {
+    let mut passed = true;
+
+    // Ensure all lengths match
+    passed &= question.entropy_input.len() * 8 == info.entropy_input_len;
+    passed &= question.nonce.len() * 8 == info.nonce_len;
+    passed &= question.personalization_string.len() * 8 == info.personalization_string_len;
+    passed &= question.additional_input_1.len() * 8 == info.additional_input_len;
+    passed &= question.additional_input_2.len() * 8 == info.additional_input_len;
+    passed &= question.returned_bytes.len() * 8 == info.returned_bits_len;
+
+    // For the pr_false tests, we have reseeding values which we must check
+    if reseed {
+        passed &= question.entropy_input_reseed.len() * 8 == info.entropy_input_len;
+        passed &= question.additional_input_reseed.len() * 8 == info.additional_input_len;
+    }
+
+    // When prediciton resistance is required we have two other entropy inputs
+    if info.prediction_resistance {
+        passed &= question.entropy_input_pr_1.len() * 8 == info.entropy_input_len;
+        passed &= question.entropy_input_pr_2.len() * 8 == info.entropy_input_len;
+    }
+
+    // buffer to read bytes into
+    let mut generated_bytes = vec![0; info.returned_bits_len / 8];
+
+    // Create the correct Drbg from the algorithm name
+    let mut drbg;
+    if hmac {
+        drbg = create_hmac_drbg_from_name(question, info);
+    } else {
+        drbg = create_hash_drbg_from_name(question, info);
+    }
 
     // For pr_false we reseed before requesting any bytes at all
     if reseed {
@@ -264,11 +340,14 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool) -
     passed
 }
 
-fn run_hash_kat(name: &str) {
-    // Whether or not to reseed
-    let reseed = name.contains("pr_false");
+fn run_kat_test(kat_type: &str, name: &str) {
+    // Whether or not to explicitly reseed
+    let reseed = kat_type.contains("pr_false");
+    let hmac = name.contains("HMAC");
 
-    let response_file = Path::new("assets").join(name).join("Hash_DRBG.rsp");
+    let response_file = Path::new("assets")
+        .join(kat_type)
+        .join(format!("{}_DRBG.rsp", name));
     let mut contents = std::fs::read_to_string(response_file).unwrap();
     contents.retain(|c| c != '\r');
 
@@ -288,7 +367,7 @@ fn run_hash_kat(name: &str) {
         // Otherwise perform a test
         else {
             parse_question_block(block, &mut question_block);
-            test_passed = perform_kat_test(&question_block, &info_block, reseed);
+            test_passed = perform_kat_test(&question_block, &info_block, reseed, hmac);
             assert!(test_passed);
         }
     }
@@ -296,15 +375,30 @@ fn run_hash_kat(name: &str) {
 
 #[test]
 fn test_hash_kat_no_reseed() {
-    run_hash_kat("drbgvectors_no_reseed");
+    run_kat_test("drbgvectors_no_reseed", "Hash");
 }
 
 #[test]
 fn test_hash_kat_pr_false() {
-    run_hash_kat("drbgvectors_pr_false");
+    run_kat_test("drbgvectors_pr_false", "Hash");
 }
 
 #[test]
 fn test_hash_kat_pr_true() {
-    run_hash_kat("drbgvectors_pr_true");
+    run_kat_test("drbgvectors_pr_true", "Hash");
+}
+
+#[test]
+fn test_hmac_kat_no_reseed() {
+    run_kat_test("drbgvectors_no_reseed", "HMAC");
+}
+
+#[test]
+fn test_hmac_kat_pr_false() {
+    run_kat_test("drbgvectors_pr_false", "HMAC");
+}
+
+#[test]
+fn test_hmac_kat_pr_true() {
+    run_kat_test("drbgvectors_pr_true", "HMAC");
 }
