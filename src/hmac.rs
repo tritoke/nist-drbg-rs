@@ -118,15 +118,13 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         }
 
         // If additional_input is given, run HMAC_update
-        if let Some(additional_input) = additional_input {
-            if !additional_input.is_empty() {
-                self.hmac_drbg_update(&[additional_input])
-            }
+        let additional_input = additional_input.unwrap_or(b"");
+        if !additional_input.is_empty() {
+            self.hmac_drbg_update(&[additional_input])
         }
 
         // The random bytes we return are the output of repeatedly
         // computing V = HMAC(K, V)
-
         let bufsz = buf.len();
         let hashsz = self.value.len(); // Seems like a dumb hack
         let m = bufsz.div_ceil(hashsz);
@@ -146,7 +144,7 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
             }
         }
 
-        self.hmac_drbg_update(&[additional_input.unwrap_or(b"")]);
+        self.hmac_drbg_update(&[additional_input]);
         self.reseed_counter += 1;
 
         Ok(())
