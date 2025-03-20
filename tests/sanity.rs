@@ -1,7 +1,7 @@
 use nist_drbg_rs::Drbg;
 use nist_drbg_rs::HmacSha1Drbg;
 use nist_drbg_rs::Sha1Drbg;
-use nist_drbg_rs::{AesCtr128Drbg, TdeaCtrDrbg};
+use nist_drbg_rs::AesCtr128Drbg;
 
 use hex_lit::hex;
 

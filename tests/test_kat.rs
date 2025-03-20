@@ -2,12 +2,12 @@ use std::path::Path;
 
 use nist_drbg_rs::{
     AesCtr128Drbg, AesCtr192Drbg, AesCtr256Drbg, Drbg, HmacSha1Drbg, HmacSha224Drbg,
-    HmacSha256Drbg, HmacSha384Drbg, HmacSha512_224Drbg, HmacSha512_256Drbg, HmacSha512Drbg,
-    Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
+    HmacSha256Drbg, HmacSha384Drbg, HmacSha512Drbg, HmacSha512_224Drbg, HmacSha512_256Drbg,
+    Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512Drbg, Sha512_224Drbg, Sha512_256Drbg,
     TdeaCtrDrbg,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TestInformation {
     algorithm_name: String,
     prediction_resistance: bool,
@@ -18,21 +18,7 @@ pub struct TestInformation {
     returned_bits_len: usize,
 }
 
-impl Default for TestInformation {
-    fn default() -> Self {
-        TestInformation {
-            algorithm_name: String::new(),
-            prediction_resistance: false,
-            entropy_input_len: 0,
-            nonce_len: 0,
-            personalization_string_len: 0,
-            additional_input_len: 0,
-            returned_bits_len: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Question {
     count: usize,
     entropy_input: Vec<u8>,
@@ -45,24 +31,6 @@ pub struct Question {
     additional_input_1: Vec<u8>,
     additional_input_2: Vec<u8>,
     returned_bytes: Vec<u8>,
-}
-
-impl Default for Question {
-    fn default() -> Self {
-        Question {
-            count: 0,
-            entropy_input: Vec::new(),
-            nonce: Vec::new(),
-            personalization_string: Vec::new(),
-            entropy_input_reseed: Vec::new(),
-            entropy_input_pr_1: Vec::new(),
-            entropy_input_pr_2: Vec::new(),
-            additional_input_reseed: Vec::new(),
-            additional_input_1: Vec::new(),
-            additional_input_2: Vec::new(),
-            returned_bytes: Vec::new(),
-        }
-    }
 }
 
 fn parse_bool(input: &str) -> bool {
