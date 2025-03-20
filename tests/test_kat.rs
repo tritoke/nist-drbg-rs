@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use nist_drbg_rs::{
     AesCtr128Drbg, AesCtr192Drbg, AesCtr256Drbg, Drbg, HmacSha1Drbg, HmacSha224Drbg,
@@ -7,7 +10,7 @@ use nist_drbg_rs::{
     TdeaCtrDrbg,
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TestInformation {
     algorithm_name: String,
     prediction_resistance: bool,
@@ -16,6 +19,83 @@ pub struct TestInformation {
     personalization_string_len: usize,
     additional_input_len: usize,
     returned_bits_len: usize,
+}
+
+impl FromStr for TestInformation {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut algorithm_name = None;
+        let mut prediction_resistance = None;
+        let mut entropy_input_len = None;
+        let mut nonce_len = None;
+        let mut personalization_string_len = None;
+        let mut additional_input_len = None;
+        let mut returned_bits_len = None;
+
+        for line in s.lines() {
+            let data = line.trim_matches(['[', ']']);
+            // For the first line we just get the algorithm name
+            if !data.contains('=') {
+                algorithm_name = Some(data.to_string());
+            } else {
+                let (name, value) = data.split_once(" = ").unwrap();
+                match name {
+                    "PredictionResistance" => {
+                        prediction_resistance = Some(
+                            value
+                                .to_lowercase()
+                                .parse()
+                                .map_err(|_| "failed to parse PredictionResistance")?,
+                        );
+                    }
+                    "EntropyInputLen" => {
+                        entropy_input_len = Some(
+                            value
+                                .parse()
+                                .map_err(|_| "failed to parse EntropyInputLen")?,
+                        );
+                    }
+                    "NonceLen" => {
+                        nonce_len = Some(value.parse().map_err(|_| "failed to parse NonceLen")?)
+                    }
+                    "PersonalizationStringLen" => {
+                        personalization_string_len = Some(
+                            value
+                                .parse()
+                                .map_err(|_| "failed to parse PersonalizationStringLen")?,
+                        )
+                    }
+                    "AdditionalInputLen" => {
+                        additional_input_len = Some(
+                            value
+                                .parse()
+                                .map_err(|_| "failed to parse AdditionalInputLen")?,
+                        )
+                    }
+                    "ReturnedBitsLen" => {
+                        returned_bits_len = Some(
+                            value
+                                .parse()
+                                .map_err(|_| "failed to parse ReturnedBitsLen")?,
+                        )
+                    }
+                    _ => panic!("Unexpected key: {name:?}"),
+                }
+            }
+        }
+
+        Ok(Self {
+            algorithm_name: algorithm_name.ok_or("Algorithm name missing")?,
+            prediction_resistance: prediction_resistance.ok_or("PredictionResistance missing")?,
+            entropy_input_len: entropy_input_len.ok_or("EntropyInputLen missing")?,
+            nonce_len: nonce_len.ok_or("NonceLen missing")?,
+            personalization_string_len: personalization_string_len
+                .ok_or("PersonalizationStringLen missing")?,
+            additional_input_len: additional_input_len.ok_or("AdditionalInputLen missing")?,
+            returned_bits_len: returned_bits_len.ok_or("ReturnedBitsLen missing")?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -33,74 +113,49 @@ pub struct Question {
     returned_bytes: Vec<u8>,
 }
 
-fn parse_bool(input: &str) -> bool {
-    match input {
-        "True" => true,
-        "False" => false,
-        _ => panic!("Unexpected key: {input:?}"),
-    }
-}
+impl FromStr for Question {
+    type Err = &'static str;
 
-fn parse_test_information(block: &str, info: &mut TestInformation) {
-    for line in block.lines() {
-        let data = line.trim_matches(|c| c == '[' || c == ']');
-        // For the first line we just get the algorithm name
-        if !data.contains("=") {
-            info.algorithm_name = data.to_string();
-        } else {
-            let (name, value) = data.split_once(" = ").unwrap();
-            match name {
-                "PredictionResistance" => info.prediction_resistance = parse_bool(value),
-                "EntropyInputLen" => info.entropy_input_len = value.parse().unwrap(),
-                "NonceLen" => info.nonce_len = value.parse().unwrap(),
-                "PersonalizationStringLen" => {
-                    info.personalization_string_len = value.parse().unwrap()
-                }
-                "AdditionalInputLen" => info.additional_input_len = value.parse().unwrap(),
-                "ReturnedBitsLen" => info.returned_bits_len = value.parse().unwrap(),
-                _ => panic!("Unexpected key: {name:?}"),
-            }
-        }
-    }
-}
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // We need to parse two fields with the same name in the KAT file
+        // let mut addition_input_seen = false;
+        // let mut entropy_pr_seen = false;
 
-fn parse_question_block(block: &str, question: &mut Question) {
-    // We need to parse two fields with the same name in the KAT file
-    let mut addition_input_seen = false;
-    let mut entropy_pr_seen = false;
+        // for line in block.lines() {
+        //     let (name, value) = line.split_once(" = ").unwrap();
+        //     match name {
+        //         "COUNT" => question.count = value.parse().unwrap(),
+        //         "EntropyInput" => question.entropy_input = hex::decode(value).unwrap(),
+        //         "Nonce" => question.nonce = hex::decode(value).unwrap(),
+        //         "PersonalizationString" => {
+        //             question.personalization_string = hex::decode(value).unwrap()
+        //         }
+        //         "EntropyInputReseed" => question.entropy_input_reseed = hex::decode(value).unwrap(),
+        //         "AdditionalInputReseed" => {
+        //             question.additional_input_reseed = hex::decode(value).unwrap()
+        //         }
+        //         "AdditionalInput" => {
+        //             if addition_input_seen {
+        //                 question.additional_input_2 = hex::decode(value).unwrap();
+        //             } else {
+        //                 question.additional_input_1 = hex::decode(value).unwrap();
+        //                 addition_input_seen = true;
+        //             }
+        //         }
+        //         "EntropyInputPR" => {
+        //             if entropy_pr_seen {
+        //                 question.entropy_input_pr_2 = hex::decode(value).unwrap();
+        //             } else {
+        //                 question.entropy_input_pr_1 = hex::decode(value).unwrap();
+        //                 entropy_pr_seen = true;
+        //             }
+        //         }
+        //         "ReturnedBits" => question.returned_bytes = hex::decode(value).unwrap(),
+        //         _ => panic!("Unexpected key: {name:?}"),
+        //     }
+        // }
 
-    for line in block.lines() {
-        let (name, value) = line.split_once(" = ").unwrap();
-        match name {
-            "COUNT" => question.count = value.parse().unwrap(),
-            "EntropyInput" => question.entropy_input = hex::decode(value).unwrap(),
-            "Nonce" => question.nonce = hex::decode(value).unwrap(),
-            "PersonalizationString" => {
-                question.personalization_string = hex::decode(value).unwrap()
-            }
-            "EntropyInputReseed" => question.entropy_input_reseed = hex::decode(value).unwrap(),
-            "AdditionalInputReseed" => {
-                question.additional_input_reseed = hex::decode(value).unwrap()
-            }
-            "AdditionalInput" => {
-                if addition_input_seen {
-                    question.additional_input_2 = hex::decode(value).unwrap();
-                } else {
-                    question.additional_input_1 = hex::decode(value).unwrap();
-                    addition_input_seen = true;
-                }
-            }
-            "EntropyInputPR" => {
-                if entropy_pr_seen {
-                    question.entropy_input_pr_2 = hex::decode(value).unwrap();
-                } else {
-                    question.entropy_input_pr_1 = hex::decode(value).unwrap();
-                    entropy_pr_seen = true;
-                }
-            }
-            "ReturnedBits" => question.returned_bytes = hex::decode(value).unwrap(),
-            _ => panic!("Unexpected key: {name:?}"),
-        }
+        Ok(todo!())
     }
 }
 
@@ -358,37 +413,75 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
     passed
 }
 
-fn run_kat_test(kat_type: &str, name: &str) {
-    // Whether or not to explicitly reseed
-    let reseed = kat_type.contains("pr_false");
+#[derive(Debug)]
+struct KnownAnswerTest {
+    info: TestInformation,
+    questions: Vec<Question>,
+}
 
-    // Load the KAT file as a string
-    let response_file = Path::new("assets")
-        .join(kat_type)
-        .join(format!("{}_DRBG.rsp", name));
-    let contents = std::fs::read_to_string(response_file).unwrap();
+impl FromStr for KnownAnswerTest {
+    type Err = &'static str;
 
-    // Create structs which contain the test information and question data
-    let mut info_block = TestInformation::default();
-    let mut question_block = Question::default();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Create structs which contain the test information and question data
+        let mut info = None;
+        let mut questions = vec![];
 
-    // Iterate through each KAT block
-    for block in contents.split("\n\n") {
-        // Ignore the metadata or empty blocks
-        if block.starts_with('#') || block.is_empty() {
-            continue;
+        // Iterate through each KAT block
+        for block in s.split("\n\n") {
+            // Ignore the metadata or empty blocks
+            if block.starts_with('#') || block.is_empty() {
+                continue;
+            }
+            // Parse the KAT data values for the question
+            else if block.starts_with('[') {
+                info = Some(block.parse()?);
+            }
+            // Subsequent blocks are then question blocks which we parse and then test
+            else {
+                let q = block.parse()?;
+                questions.push(q);
+            }
         }
-        // Parse the KAT data values for the question
-        else if block.starts_with('[') {
-            parse_test_information(block, &mut info_block);
+
+        if questions.is_empty() {
+            return Err("No questions in KAT?");
         }
-        // Subsequent blocks are then question blocks which we parse and then test
-        else {
-            parse_question_block(block, &mut question_block);
-            let test_passed = perform_kat_test(&question_block, &info_block, reseed, name);
-            assert!(test_passed);
-        }
+
+        Ok(Self {
+            info: info.ok_or("test information missing")?,
+            questions,
+        })
     }
+}
+
+impl KnownAnswerTest {
+    fn load(kat_type: &str, name: &str) -> Self {
+        let response_file = [
+            String::from("assets"),
+            kat_type.to_owned(),
+            format!("{}_DRBG.rsp", name),
+        ]
+        .iter()
+        .collect::<PathBuf>();
+        let contents = std::fs::read_to_string(response_file).expect("Failed to read KAT file");
+
+        contents.parse().expect("Failed to parse KAT file")
+    }
+
+    fn test_impl(&self, drbg_under_test: impl Fn(&Question) -> )
+}
+
+fn run_kat_test(kat_type: &str, name: &str) {
+    let reseed = kat_type.contains("pr_false");
+    let test = KnownAnswerTest::load(kat_type, name);
+
+    for q in &test.questions {
+        
+    }
+
+    let test_passed = perform_kat_test(&question_block, &info_block, reseed, name);
+    assert!(test_passed, "Test {kat_type} for {name} DRBG failed");
 }
 
 #[test]
