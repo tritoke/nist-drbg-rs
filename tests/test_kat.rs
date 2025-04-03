@@ -162,7 +162,7 @@ fn create_hash_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
             )
             .unwrap(),
         ),
-        _ => panic!("Unexpected algorithm: {{info.algorithm_name.as_str():?}}"),
+        _ => panic!("Unexpected algorithm: {:?}", info.algorithm_name.as_str()),
     };
     drbg
 }
@@ -225,7 +225,7 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
             )
             .unwrap(),
         ),
-        _ => panic!("Unexpected algorithm: {{info.algorithm_name.as_str():?}}"),
+        _ => panic!("Unexpected algorithm: {:?}", info.algorithm_name.as_str()),
     };
     drbg
 }
@@ -276,7 +276,7 @@ fn create_ctr_drbg_from_name(question: &Question, info: &TestInformation) -> Box
         "AES-256 no df" => Box::new(
             AesCtr256Drbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
         ),
-        _ => panic!("Unexpected algorithm: {{info.algorithm_name.as_str():?}}"),
+        _ => panic!("Unexpected algorithm: {:?}", info.algorithm_name.as_str()),
     };
     drbg
 }
