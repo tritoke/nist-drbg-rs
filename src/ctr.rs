@@ -1,5 +1,5 @@
 use aes::cipher::BlockEncrypt;
-use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
+use aes::cipher::{generic_array::GenericArray, BlockCipher, KeyInit};
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
 
@@ -22,6 +22,34 @@ pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize
     // Currently unused:
     // admin bits - not sure about these right now but the standard shows them
     _prediction_resistance_flag: bool, // is this drbg prediction resistant?
+}
+
+impl<C, const SEEDLEN: usize> rand_core::TryRngCore for CtrDrbg<C, SEEDLEN>
+where
+    C: BlockCipher + KeyInit + BlockEncrypt,
+{
+    type Error = SeedError;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        let mut bytes = [0; 4];
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        let mut bytes = [0; 8];
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        self.random_bytes(dst)
+    }
+}
+
+impl<C, const SEEDLEN: usize> rand_core::TryCryptoRng for CtrDrbg<C, SEEDLEN> where
+    C: BlockCipher + KeyInit + BlockEncrypt
+{
 }
 
 impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
