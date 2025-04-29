@@ -74,3 +74,34 @@ pub trait Drbg {
         additional_input: &[u8],
     ) -> Result<(), SeedError>;
 }
+
+// Top level policy object, holds all the limits we want to allow configuration of
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Policy {
+    reseed_limit: Option<u64>,
+    prediction_resistance: PredictionResistance,
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PredictionResistance {
+    Enabled,
+
+    #[default]
+    Disabled,
+}
+
+impl Policy {
+    pub fn with_reseed_limit(self, reseed_limit: u64) -> Self {
+        Self {
+            reseed_limit: Some(reseed_limit),
+            ..self
+        }
+    }
+
+    pub fn with_prediction_resistance(self, prediction_resistance: PredictionResistance) -> Self {
+        Self {
+            prediction_resistance,
+            ..self
+        }
+    }
+}

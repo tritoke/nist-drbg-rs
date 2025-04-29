@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use digest::{Digest, OutputSizeUser};
 
 use crate::arithmetic::{add_into, increment};
-use crate::{Drbg, SeedError};
+use crate::{Drbg, Policy, PredictionResistance, SeedError};
 
 /// What is the maximum number of calls to Hash_DRBG before the DRBG must be reseeded?
 ///
@@ -25,11 +25,34 @@ pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
     // the number of requests for bits received since the last (re)seeding
     reseed_counter: u64,
 
-    // Currently unused:
-    // admin bits - not sure about these right now but the standard shows them
-    _prediction_resistance_flag: bool, // is this drbg prediction resistant?
+    limits: HashPolicy,
 
     _hasher: PhantomData<H>,
+}
+
+// policy specifically for the HashDrbg, we can use this to enforce limits on a per-DRBG type basis
+struct HashPolicy {
+    policy: crate::Policy,
+}
+
+impl From<crate::Policy> for HashPolicy {
+    fn from(policy: crate::Policy) -> Self {
+        Self { policy }
+    }
+}
+
+impl HashPolicy {
+    fn reseed_limit(&self) -> u64 {
+        self.policy
+            .reseed_limit
+            .unwrap_or(NIST_RESEED_INTERVAL)
+            .clamp(1, MAX_RESEED_INTERVAL)
+    }
+
+    #[allow(dead_code)]
+    fn prediction_resistance(&self) -> PredictionResistance {
+        self.policy.prediction_resistance
+    }
 }
 
 impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
@@ -39,9 +62,10 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         // Sam: should we not check for this and raise an error?
         // Jack: I don't know if it has a max size? Any longer is a waste, but not error worthy
         personalization_string: &[u8], // this can have length zero, do we want empty slice or Option?
-                                       // Sam: IMO its simple enough to just give an empty byte
-                                       // slice, i.e. b"" or &[], also ideally this field should be
-                                       // encouraged 😂
+        // Sam: IMO its simple enough to just give an empty byte
+        // slice, i.e. b"" or &[], also ideally this field should be
+        // encouraged 😂
+        policy: Policy,
     ) -> Result<Self, SeedError> {
         let mut value = [0u8; SEEDLEN];
         hash_df::<H>(&[entropy, nonce, personalization_string], &mut value)?;
@@ -53,7 +77,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
             value,
             constant,
             reseed_counter: 1,
-            _prediction_resistance_flag: false,
+            limits: policy.into(),
             _hasher: PhantomData,
         })
     }
@@ -88,7 +112,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        if self.reseed_counter > NIST_RESEED_INTERVAL {
+        if self.reseed_counter > self.limits.reseed_limit() {
             return Err(SeedError::CounterExhausted);
         }
 
