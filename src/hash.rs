@@ -30,9 +30,8 @@ pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
     // the number of requests for bits received since the last (re)seeding
     reseed_counter: u64,
 
-    // Currently unused:
-    // admin bits - not sure about these right now but the standard shows them
-    _prediction_resistance_flag: bool, // is this drbg prediction resistant?
+    // Whether to force reseeding before every call to generate
+    prediction_resistance: bool, // is this drbg prediction resistant?
 
     _hasher: PhantomData<H>,
 }
@@ -42,6 +41,25 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         entropy: &[u8],
         nonce: &[u8],
         personalization_string: &[u8],
+    ) -> Result<Self, SeedError> {
+        Self::new_impl(entropy, nonce, personalization_string, false)
+    }
+
+    pub fn new_with_pr(
+        entropy: &[u8],
+        nonce: &[u8],
+        personalization_string: &[u8],
+    ) -> Result<Self, SeedError> {
+        Self::new_impl(entropy, nonce, personalization_string, true)
+    }
+
+    // TODO: I don't like making this public, but I don't know the best way to use one or the
+    // other of the above in the KAT tests lol
+    pub fn new_impl(
+        entropy: &[u8],
+        nonce: &[u8],
+        personalization_string: &[u8],
+        prediction_resistance: bool,
     ) -> Result<Self, SeedError> {
         // First we check the input lengths are below the maximal bounds
         // TODO: is there an upper length for nonce? I can't see one documented.
@@ -64,7 +82,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
             value,
             constant,
             reseed_counter: 1,
-            _prediction_resistance_flag: false,
+            prediction_resistance: prediction_resistance,
             _hasher: PhantomData,
         })
     }
@@ -112,7 +130,9 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
         // Ensure that we do not need to reseed before generation
-        if self.reseed_counter > HASH_MAX_RESEED_INTERVAL {
+        if (self.prediction_resistance && self.reseed_counter > 1)
+            || self.reseed_counter > HASH_MAX_RESEED_INTERVAL
+        {
             return Err(SeedError::CounterExhausted);
         }
 
