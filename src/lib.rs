@@ -27,10 +27,7 @@ pub use ctr::*;
 #[derive(Debug)]
 pub enum SeedError {
     InsufficientEntropy,
-    LengthError {
-        max_size: usize,
-        requested_size: usize,
-    },
+    LengthError { max_size: u64, requested_size: u64 },
     EmptyNonce,
     CounterExhausted,
 }

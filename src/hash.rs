@@ -5,15 +5,20 @@ use digest::{Digest, OutputSizeUser};
 use crate::arithmetic::{add_into, increment};
 use crate::{Drbg, SeedError};
 
+/// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
+pub const HASH_MAX_LENGTH: u64 = 1 << (35 - 3);
+
+/// What is the maximum number of bytes allowed to be generated in a single call
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
+pub const HASH_MAX_OUTPUT: u64 = 1 << (19 - 3);
+
 /// What is the maximum number of calls to Hash_DRBG before the DRBG must be reseeded?
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
-pub const MAX_RESEED_INTERVAL: u64 = 1 << 48;
-
-/// What is the recommended number of calls to Hash_DRBG before the DRBG must be reseeded?
-///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B1
-pub const NIST_RESEED_INTERVAL: u64 = 100_000;
+pub const HASH_MAX_RESEED_INTERVAL: u64 = 1 << 48;
 
 pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
     // V - Value of `seedlen` bits
@@ -35,14 +40,20 @@ pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
 impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
     pub fn new(
         entropy: &[u8],
-        nonce: &[u8], // Jack: the nonce can be up to 128 bits (half security bits)
-        // Sam: should we not check for this and raise an error?
-        // Jack: I don't know if it has a max size? Any longer is a waste, but not error worthy
-        personalization_string: &[u8], // this can have length zero, do we want empty slice or Option?
-                                       // Sam: IMO its simple enough to just give an empty byte
-                                       // slice, i.e. b"" or &[], also ideally this field should be
-                                       // encouraged 😂
+        nonce: &[u8],
+        personalization_string: &[u8],
     ) -> Result<Self, SeedError> {
+        // First we check the input lengths are below the maximal bounds
+        // TODO: is there an upper length for nonce? I can't see one documented.
+        for slice in [entropy, personalization_string] {
+            if (slice.len() as u64) > HASH_MAX_LENGTH {
+                return Err(SeedError::LengthError {
+                    max_size: HASH_MAX_LENGTH,
+                    requested_size: slice.len() as u64,
+                });
+            }
+        }
+
         let mut value = [0u8; SEEDLEN];
         hash_df::<H>(&[entropy, nonce, personalization_string], &mut value)?;
 
@@ -63,15 +74,27 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         entropy: &[u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
+        // First we check the input lengths are below the maximal bounds
+        if (entropy.len() as u64) > HASH_MAX_LENGTH {
+            return Err(SeedError::LengthError {
+                max_size: HASH_MAX_LENGTH,
+                requested_size: entropy.len() as u64,
+            });
+        }
+
+        // Next if the additional input is present, check that it's not too long
+        let additional_input = additional_input.unwrap_or(b"");
+        if (additional_input.len() as u64) > HASH_MAX_LENGTH {
+            return Err(SeedError::LengthError {
+                max_size: HASH_MAX_LENGTH,
+                requested_size: additional_input.len() as u64,
+            });
+        }
+
         // We hash 0x01 || V || entropy || additional_input
         let mut seed = self.value;
         hash_df::<H>(
-            &[
-                &[0x01],
-                &self.value,
-                entropy,
-                additional_input.unwrap_or(b""),
-            ],
+            &[&[0x01], &self.value, entropy, additional_input],
             &mut seed,
         )?;
         self.value = seed;
@@ -88,11 +111,28 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        if self.reseed_counter > NIST_RESEED_INTERVAL {
+        // Ensure that we do not need to reseed before generation
+        if self.reseed_counter > HASH_MAX_RESEED_INTERVAL {
             return Err(SeedError::CounterExhausted);
         }
 
+        // Now we ensure we're not requesting too many bytes
+        if (buf.len() as u64) > HASH_MAX_OUTPUT {
+            return Err(SeedError::LengthError {
+                max_size: HASH_MAX_OUTPUT,
+                requested_size: buf.len() as u64,
+            });
+        }
+
+        // Next if the additional input is present, check that it's not too long
         let additional_input = additional_input.unwrap_or(b"");
+        if (additional_input.len() as u64) > HASH_MAX_LENGTH {
+            return Err(SeedError::LengthError {
+                max_size: HASH_MAX_LENGTH,
+                requested_size: additional_input.len() as u64,
+            });
+        }
+
         if !additional_input.is_empty() {
             // w = Hash(0x02 || V || additional_input)
             let w = H::new_with_prefix([0x02])
@@ -157,8 +197,8 @@ fn hash_df<H: Digest>(seed_material: &[&[u8]], out: &mut [u8]) -> Result<(), See
 
     if outsz > hashsz * 255 {
         return Err(SeedError::LengthError {
-            max_size: 255 * hashsz,
-            requested_size: outsz,
+            max_size: (255 * hashsz) as u64,
+            requested_size: outsz as u64,
         });
     }
 
