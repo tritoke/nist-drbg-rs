@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use digest::{Digest, OutputSizeUser};
 
 use crate::arithmetic::{add_into, increment};
-use crate::{Drbg, Policy, PredictionResistance, SeedError};
+use crate::{Drbg, Policy, PredictionResistance, SeedError, hash_security_size};
 
 /// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
 ///
@@ -76,12 +76,9 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         personalization_string: &[u8],
         policy: Policy,
     ) -> Result<Self, SeedError> {
-        // TODO: this is a min length, should I make a new error?
-        if 8 * entropy.len() < security_size::<H>() {
-            return Err(SeedError::LengthError {
-                max_size: security_size::<H>() as u64,
-                requested_size: entropy.len() as u64,
-            });
+        // Check that the entropy has the minimum length
+        if entropy.len() < hash_security_size::<H>() {
+            return Err(SeedError::InsufficientEntropy);
         }
 
         // Check the input lengths are below the maximal bounds
@@ -116,13 +113,8 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
         // Check that the entropy has the minimum length
-
-        // TODO: this is a min length, should I make a new error?
-        if 8 * entropy.len() < security_size::<H>() {
-            return Err(SeedError::LengthError {
-                max_size: security_size::<H>() as u64,
-                requested_size: entropy.len() as u64,
-            });
+        if entropy.len() < hash_security_size::<H>() {
+            return Err(SeedError::InsufficientEntropy);
         }
 
         // Check the input lengths are below the maximal bounds
@@ -238,19 +230,6 @@ impl<H: Digest, const SEEDLEN: usize> Drbg for HashDrbg<H, SEEDLEN> {
         additional_input: &[u8],
     ) -> Result<(), crate::SeedError> {
         self.random_bytes_core(buf, Some(additional_input))
-    }
-}
-
-/// Auxiliary function to determine security strength as per SP 800-57 from
-/// the digest size
-fn security_size<H: Digest>() -> usize {
-    let digest_size = <H as OutputSizeUser>::output_size();
-    if digest_size <= 20 {
-        return 128;
-    } else if digest_size <= 28 {
-        return 192;
-    } else {
-        return 256;
     }
 }
 

@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use digest::{FixedOutputReset, KeyInit, generic_array::GenericArray};
 use hmac::{Hmac, Mac};
 
-use crate::{Drbg, Policy, PredictionResistance, SeedError};
+use crate::{Drbg, Policy, PredictionResistance, SeedError, hash_security_size};
 
 /// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
 ///
@@ -76,7 +76,12 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         personalization_string: &[u8],
         policy: Policy,
     ) -> Result<Self, SeedError> {
-        // First we check the input lengths are below the maximal bounds
+        // Check that the entropy has the minimum length
+        if entropy.len() < hash_security_size::<H>() {
+            return Err(SeedError::InsufficientEntropy);
+        }
+
+        // Check the input lengths are below the maximal bounds
         // TODO: is there an upper length for nonce? I can't see one documented.
         for slice in [entropy, personalization_string] {
             if (slice.len() as u64) > HMAC_MAX_LENGTH {
@@ -150,7 +155,12 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         entropy: &[u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        // First we check the input lengths are below the maximal bounds
+        // Check that the entropy has the minimum length
+        if entropy.len() < hash_security_size::<H>() {
+            return Err(SeedError::InsufficientEntropy);
+        }
+
+        // Check the input lengths are below the maximal bounds
         if (entropy.len() as u64) > HMAC_MAX_LENGTH {
             return Err(SeedError::LengthError {
                 max_size: HMAC_MAX_LENGTH,
