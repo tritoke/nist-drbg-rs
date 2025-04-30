@@ -180,12 +180,18 @@ fn create_hash_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
 }
 
 fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Box<dyn Drbg> {
+    let policy = if info.prediction_resistance {
+        Policy::default().with_prediction_resistance(PredictionResistance::Enabled)
+    } else {
+        Policy::default().with_prediction_resistance(PredictionResistance::Disabled)
+    };
     let drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
         "SHA-1" => Box::new(
             HmacSha1Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
@@ -194,6 +200,7 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
@@ -202,6 +209,7 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
@@ -210,6 +218,7 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
@@ -218,6 +227,7 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
@@ -226,6 +236,7 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
@@ -234,6 +245,7 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),

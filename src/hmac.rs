@@ -1,20 +1,28 @@
 use core::marker::PhantomData;
-
 use digest::{FixedOutputReset, KeyInit, generic_array::GenericArray};
-
 use hmac::{Hmac, Mac};
 
-use crate::{Drbg, SeedError};
+use crate::{Drbg, Policy, PredictionResistance, SeedError};
 
-/// What is the maximum number of calls to Hmac_DRBG before the DRBG must be reseeded?
+/// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
-pub const MAX_RESEED_INTERVAL_HMAC: u64 = 1 << 48;
+pub const HMAC_MAX_LENGTH: u64 = 1 << (35 - 3);
 
-/// What is the recommended number of calls to Hmac_DRBG before the DRBG must be reseeded?
+/// What is the maximum number of bytes allowed to be generated in a single call
 ///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B2
-pub const NIST_RESEED_INTERVAL_HMAC: u64 = 10_000;
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
+pub const HMAC_MAX_OUTPUT: u64 = 1 << (19 - 3);
+
+/// What is the maximum number of calls to HMAC DRBG before the DRBG must be reseeded?
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
+pub const HMAC_MAX_RESEED_INTERVAL: u64 = 1 << 48;
+
+/// What is the recommended number of calls to HMAC DRBG before the DRBG must be reseeded?
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B1
+pub const HMAC_NIST_RESEED_INTERVAL: u64 = 100_000;
 
 pub struct HmacDrbg<H: Mac + KeyInit + FixedOutputReset> {
     // key - Value of `seedlen` bits
@@ -26,11 +34,39 @@ pub struct HmacDrbg<H: Mac + KeyInit + FixedOutputReset> {
     // the number of requests for bits received since the last (re)seeding
     reseed_counter: u64,
 
-    // Currently unused:
-    // admin bits - not sure about these right now but the standard shows them
-    _prediction_resistance_flag: bool, // is this drbg prediction resistant?
+    // Limits for max calls to generate before reseeding
+    limits: HmacPolicy,
 
     _hasher: PhantomData<H>,
+}
+
+// policy specifically for the HmacDrbg, we can use this to enforce limits on a per-DRBG type basis
+struct HmacPolicy {
+    policy: crate::Policy,
+}
+
+impl From<crate::Policy> for HmacPolicy {
+    fn from(policy: crate::Policy) -> Self {
+        Self { policy }
+    }
+}
+
+impl HmacPolicy {
+    fn reseed_limit(&self) -> u64 {
+        // When prediciton resistance is enabled, a reseed is forced after every
+        // call to generate, which is the same as a max-limit of 2 for our code
+        if self.prediction_resistance() == PredictionResistance::Enabled {
+            return 2;
+        }
+        self.policy
+            .reseed_limit
+            .unwrap_or(HMAC_NIST_RESEED_INTERVAL)
+            .clamp(1, HMAC_MAX_RESEED_INTERVAL)
+    }
+
+    fn prediction_resistance(&self) -> PredictionResistance {
+        self.policy.prediction_resistance
+    }
 }
 
 impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
@@ -38,7 +74,19 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         entropy: &[u8],
         nonce: &[u8],
         personalization_string: &[u8],
+        policy: Policy,
     ) -> Result<Self, SeedError> {
+        // First we check the input lengths are below the maximal bounds
+        // TODO: is there an upper length for nonce? I can't see one documented.
+        for slice in [entropy, personalization_string] {
+            if (slice.len() as u64) > HMAC_MAX_LENGTH {
+                return Err(SeedError::LengthError {
+                    max_size: HMAC_MAX_LENGTH,
+                    requested_size: slice.len() as u64,
+                });
+            }
+        }
+
         let mut key = GenericArray::<u8, H::OutputSize>::default();
         let mut value = GenericArray::<u8, H::OutputSize>::default();
 
@@ -53,7 +101,7 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
             key,
             value,
             reseed_counter: 1,
-            _prediction_resistance_flag: false,
+            limits: policy.into(),
             _hasher: PhantomData,
         };
         hmac_drbg.hmac_drbg_update(&[entropy, nonce, personalization_string]);
@@ -102,7 +150,24 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         entropy: &[u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        self.hmac_drbg_update(&[entropy, additional_input.unwrap_or(b"")]);
+        // First we check the input lengths are below the maximal bounds
+        if (entropy.len() as u64) > HMAC_MAX_LENGTH {
+            return Err(SeedError::LengthError {
+                max_size: HMAC_MAX_LENGTH,
+                requested_size: entropy.len() as u64,
+            });
+        }
+
+        // Next if the additional input is present, check that it's not too long
+        let additional_input = additional_input.unwrap_or(b"");
+        if (additional_input.len() as u64) > HMAC_MAX_LENGTH {
+            return Err(SeedError::LengthError {
+                max_size: HMAC_MAX_LENGTH,
+                requested_size: additional_input.len() as u64,
+            });
+        }
+
+        self.hmac_drbg_update(&[entropy, additional_input]);
         self.reseed_counter = 1;
 
         Ok(())
@@ -113,12 +178,28 @@ impl<H: Mac + KeyInit + FixedOutputReset> HmacDrbg<H> {
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        if self.reseed_counter > NIST_RESEED_INTERVAL_HMAC {
+        // First check we do not require a reseed per the Drbg policy
+        if self.reseed_counter > self.limits.reseed_limit() {
             return Err(SeedError::CounterExhausted);
         }
 
-        // If additional_input is given, run HMAC_update
+        // Now we ensure we're not requesting too many bytes
+        if (buf.len() as u64) > HMAC_MAX_OUTPUT {
+            return Err(SeedError::LengthError {
+                max_size: HMAC_MAX_OUTPUT,
+                requested_size: buf.len() as u64,
+            });
+        }
+
+        // Next if the additional input is present, check that it's not too long
+        // then run HMAC update
         let additional_input = additional_input.unwrap_or(b"");
+        if (additional_input.len() as u64) > HMAC_MAX_LENGTH {
+            return Err(SeedError::LengthError {
+                max_size: HMAC_MAX_LENGTH,
+                requested_size: additional_input.len() as u64,
+            });
+        }
         if !additional_input.is_empty() {
             self.hmac_drbg_update(&[additional_input])
         }

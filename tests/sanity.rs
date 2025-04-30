@@ -45,7 +45,7 @@ fn test_hmac() {
     let returned_bytes: &[u8] = &hex!(
         "b7928f9503a417110788f9d0c2585f8aee6fb73b220a626b3ab9825b7a9facc79723d7e1ba9255e40e65c249b6082a7bc5e3f129d3d8f69b04ed1183419d6c4f2a13b304d2c5743f41c8b0ee73225347"
     );
-    let mut drbg = HmacSha1Drbg::new(entropy, nonce, &[]).unwrap();
+    let mut drbg = HmacSha1Drbg::new(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 80] = [0; 80];
     let _ = drbg.random_bytes(&mut buf);
@@ -62,7 +62,7 @@ fn test_hmac_add() {
     let returned_bytes: &[u8] = &hex!(
         "942909a9d380aa5d4e3af69093a8fa513ee545b9bf9e1b81c5f30966db3e5cb52f8b1b6fe440d592e5fe4a972c36aa498035e2442f82910c5cd095c7f4b4c7e7555c4669cca481cdfbfda167b5d6f8d5"
     );
-    let mut drbg = HmacSha1Drbg::new(entropy, nonce, &[]).unwrap();
+    let mut drbg = HmacSha1Drbg::new(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 80] = [0; 80];
     let _ = drbg.random_bytes_extra(&mut buf, add1);

@@ -1,5 +1,4 @@
 use core::marker::PhantomData;
-
 use digest::{Digest, OutputSizeUser};
 
 use crate::arithmetic::{add_into, increment};
@@ -145,6 +144,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
+        // First check we do not require a reseed per the Drbg policy
         if self.reseed_counter > self.limits.reseed_limit() {
             return Err(SeedError::CounterExhausted);
         }
