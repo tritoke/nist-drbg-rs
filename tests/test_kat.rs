@@ -3,8 +3,8 @@ use std::path::Path;
 use nist_drbg_rs::{
     AesCtr128Drbg, AesCtr192Drbg, AesCtr256Drbg, Drbg, HmacSha1Drbg, HmacSha224Drbg,
     HmacSha256Drbg, HmacSha384Drbg, HmacSha512_224Drbg, HmacSha512_256Drbg, HmacSha512Drbg, Policy,
-    Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
-    TdeaCtrDrbg,
+    PredictionResistance, Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512_224Drbg,
+    Sha512_256Drbg, Sha512Drbg, TdeaCtrDrbg,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -105,7 +105,11 @@ fn parse_question_block(block: &str, question: &mut Question) {
 }
 
 fn create_hash_drbg_from_name(question: &Question, info: &TestInformation) -> Box<dyn Drbg> {
-    let policy = Policy::default().with_prediction_resistance(info.prediction_resistance);
+    let policy = if info.prediction_resistance {
+        Policy::default().with_prediction_resistance(PredictionResistance::Enabled)
+    } else {
+        Policy::default().with_prediction_resistance(PredictionResistance::Disabled)
+    };
     let drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
         "SHA-1" => Box::new(
             Sha1Drbg::new(
