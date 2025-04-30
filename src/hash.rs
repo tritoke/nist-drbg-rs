@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use digest::{Digest, OutputSizeUser};
 
 use crate::arithmetic::{add_into, increment};
-use crate::{Drbg, SeedError};
+use crate::{Drbg, Policy, PredictionResistance, SeedError};
 
 /// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
 ///
@@ -20,6 +20,11 @@ pub const HASH_MAX_OUTPUT: u64 = 1 << (19 - 3);
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
 pub const HASH_MAX_RESEED_INTERVAL: u64 = 1 << 48;
 
+/// What is the recommended number of calls to Hash_DRBG before the DRBG must be reseeded?
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B1
+pub const HASH_NIST_RESEED_INTERVAL: u64 = 100_000;
+
 pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
     // V - Value of `seedlen` bits
     value: [u8; SEEDLEN],
@@ -30,10 +35,39 @@ pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
     // the number of requests for bits received since the last (re)seeding
     reseed_counter: u64,
 
-    // Whether to force reseeding before every call to generate
-    prediction_resistance: bool, // is this drbg prediction resistant?
+    // Limits for max calls to generate before reseeding
+    limits: HashPolicy,
 
     _hasher: PhantomData<H>,
+}
+
+// policy specifically for the HashDrbg, we can use this to enforce limits on a per-DRBG type basis
+struct HashPolicy {
+    policy: crate::Policy,
+}
+
+impl From<crate::Policy> for HashPolicy {
+    fn from(policy: crate::Policy) -> Self {
+        Self { policy }
+    }
+}
+
+impl HashPolicy {
+    fn reseed_limit(&self) -> u64 {
+        // When prediciton resistance is enabled, a reseed is forced after every
+        // call to generate, which is the same as a max-limit of 2 for our code
+        if self.prediction_resistance() == PredictionResistance::Enabled {
+            return 2;
+        }
+        self.policy
+            .reseed_limit
+            .unwrap_or(HASH_NIST_RESEED_INTERVAL)
+            .clamp(1, HASH_MAX_RESEED_INTERVAL)
+    }
+
+    fn prediction_resistance(&self) -> PredictionResistance {
+        self.policy.prediction_resistance
+    }
 }
 
 impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
@@ -41,25 +75,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         entropy: &[u8],
         nonce: &[u8],
         personalization_string: &[u8],
-    ) -> Result<Self, SeedError> {
-        Self::new_impl(entropy, nonce, personalization_string, false)
-    }
-
-    pub fn new_with_pr(
-        entropy: &[u8],
-        nonce: &[u8],
-        personalization_string: &[u8],
-    ) -> Result<Self, SeedError> {
-        Self::new_impl(entropy, nonce, personalization_string, true)
-    }
-
-    // TODO: I don't like making this public, but I don't know the best way to use one or the
-    // other of the above in the KAT tests lol
-    pub fn new_impl(
-        entropy: &[u8],
-        nonce: &[u8],
-        personalization_string: &[u8],
-        prediction_resistance: bool,
+        policy: Policy,
     ) -> Result<Self, SeedError> {
         // First we check the input lengths are below the maximal bounds
         // TODO: is there an upper length for nonce? I can't see one documented.
@@ -82,7 +98,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
             value,
             constant,
             reseed_counter: 1,
-            prediction_resistance: prediction_resistance,
+            limits: policy.into(),
             _hasher: PhantomData,
         })
     }
@@ -129,10 +145,7 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        // Ensure that we do not need to reseed before generation
-        if (self.prediction_resistance && self.reseed_counter > 1)
-            || self.reseed_counter > HASH_MAX_RESEED_INTERVAL
-        {
+        if self.reseed_counter > self.limits.reseed_limit() {
             return Err(SeedError::CounterExhausted);
         }
 

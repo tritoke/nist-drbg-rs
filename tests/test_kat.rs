@@ -2,7 +2,7 @@ use std::path::Path;
 
 use nist_drbg_rs::{
     AesCtr128Drbg, AesCtr192Drbg, AesCtr256Drbg, Drbg, HmacSha1Drbg, HmacSha224Drbg,
-    HmacSha256Drbg, HmacSha384Drbg, HmacSha512_224Drbg, HmacSha512_256Drbg, HmacSha512Drbg,
+    HmacSha256Drbg, HmacSha384Drbg, HmacSha512_224Drbg, HmacSha512_256Drbg, HmacSha512Drbg, Policy,
     Sha1Drbg, Sha224Drbg, Sha256Drbg, Sha384Drbg, Sha512_224Drbg, Sha512_256Drbg, Sha512Drbg,
     TdeaCtrDrbg,
 };
@@ -105,67 +105,68 @@ fn parse_question_block(block: &str, question: &mut Question) {
 }
 
 fn create_hash_drbg_from_name(question: &Question, info: &TestInformation) -> Box<dyn Drbg> {
+    let policy = Policy::default().with_prediction_resistance(info.prediction_resistance);
     let drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
         "SHA-1" => Box::new(
-            Sha1Drbg::new_impl(
+            Sha1Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
-                info.prediction_resistance,
+                policy,
             )
             .unwrap(),
         ),
         "SHA-224" => Box::new(
-            Sha224Drbg::new_impl(
+            Sha224Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
-                info.prediction_resistance,
+                policy,
             )
             .unwrap(),
         ),
         "SHA-256" => Box::new(
-            Sha256Drbg::new_impl(
+            Sha256Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
-                info.prediction_resistance,
+                policy,
             )
             .unwrap(),
         ),
         "SHA-384" => Box::new(
-            Sha384Drbg::new_impl(
+            Sha384Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
-                info.prediction_resistance,
+                policy,
             )
             .unwrap(),
         ),
         "SHA-512" => Box::new(
-            Sha512Drbg::new_impl(
+            Sha512Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
-                info.prediction_resistance,
+                policy,
             )
             .unwrap(),
         ),
         "SHA-512/224" => Box::new(
-            Sha512_224Drbg::new_impl(
+            Sha512_224Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
-                info.prediction_resistance,
+                policy,
             )
             .unwrap(),
         ),
         "SHA-512/256" => Box::new(
-            Sha512_256Drbg::new_impl(
+            Sha512_256Drbg::new(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
-                info.prediction_resistance,
+                policy,
             )
             .unwrap(),
         ),
