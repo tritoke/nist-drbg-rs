@@ -76,7 +76,15 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         personalization_string: &[u8],
         policy: Policy,
     ) -> Result<Self, SeedError> {
-        // First we check the input lengths are below the maximal bounds
+        // TODO: this is a min length, should I make a new error?
+        if 8 * entropy.len() < security_size::<H>() {
+            return Err(SeedError::LengthError {
+                max_size: security_size::<H>() as u64,
+                requested_size: entropy.len() as u64,
+            });
+        }
+
+        // Check the input lengths are below the maximal bounds
         // TODO: is there an upper length for nonce? I can't see one documented.
         for slice in [entropy, personalization_string] {
             if (slice.len() as u64) > HASH_MAX_LENGTH {
@@ -107,7 +115,17 @@ impl<H: Digest, const SEEDLEN: usize> HashDrbg<H, SEEDLEN> {
         entropy: &[u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        // First we check the input lengths are below the maximal bounds
+        // Check that the entropy has the minimum length
+
+        // TODO: this is a min length, should I make a new error?
+        if 8 * entropy.len() < security_size::<H>() {
+            return Err(SeedError::LengthError {
+                max_size: security_size::<H>() as u64,
+                requested_size: entropy.len() as u64,
+            });
+        }
+
+        // Check the input lengths are below the maximal bounds
         if (entropy.len() as u64) > HASH_MAX_LENGTH {
             return Err(SeedError::LengthError {
                 max_size: HASH_MAX_LENGTH,
@@ -220,6 +238,19 @@ impl<H: Digest, const SEEDLEN: usize> Drbg for HashDrbg<H, SEEDLEN> {
         additional_input: &[u8],
     ) -> Result<(), crate::SeedError> {
         self.random_bytes_core(buf, Some(additional_input))
+    }
+}
+
+/// Auxiliary function to determine security strength as per SP 800-57 from
+/// the digest size
+fn security_size<H: Digest>() -> usize {
+    let digest_size = <H as OutputSizeUser>::output_size();
+    if digest_size <= 20 {
+        return 128;
+    } else if digest_size <= 28 {
+        return 192;
+    } else {
+        return 256;
     }
 }
 
