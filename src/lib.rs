@@ -1,5 +1,6 @@
 #![no_std]
 
+use aes::cipher::KeySizeUser;
 use core::{error::Error, fmt::Display};
 use digest::OutputSizeUser;
 
@@ -29,6 +30,7 @@ pub use ctr::*;
 pub enum SeedError {
     InsufficientEntropy,
     LengthError { max_size: u64, requested_size: u64 },
+    IncorrectLength { expected_size: u64, given_size: u64 },
     EmptyNonce,
     CounterExhausted,
 }
@@ -48,6 +50,15 @@ impl Display for SeedError {
                     "Requested size of {requested_size} bytes exceeds maximum size of {max_size} bytes"
                 )
             }
+            SeedError::IncorrectLength {
+                expected_size,
+                given_size,
+            } => {
+                write!(
+                    f,
+                    "Requested size of {given_size} bytes is not equal to {expected_size} bytes"
+                )
+            }
             SeedError::EmptyNonce => f.write_str("Nonce must not be empty"),
             SeedError::CounterExhausted => f.write_str("Counter has been exhaused, reseed"),
         }
@@ -61,12 +72,22 @@ impl Error for SeedError {}
 fn hash_security_size<H: OutputSizeUser>() -> usize {
     let digest_size = H::output_size();
     if digest_size <= 20 {
-        return 16;
+        16
     } else if digest_size <= 28 {
-        return 24;
+        24
     } else {
-        return 32;
+        32
     }
+}
+
+/// Auxiliary function to determine security strength as per SP 800-57 from
+/// the keysize for hash and hmac based drbg
+fn block_cipher_security_size<C: KeySizeUser>() -> usize {
+    // TODO: this currently fails for TDEA
+    // For AES, the keysize is the same as the security size,
+    // but for TDEA we have 21 byte keys and only 112 bits of
+    // security, so in this case we want to return 14
+    C::key_size()
 }
 
 // NOTES:

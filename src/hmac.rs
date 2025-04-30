@@ -21,8 +21,8 @@ pub const HMAC_MAX_RESEED_INTERVAL: u64 = 1 << 48;
 
 /// What is the recommended number of calls to HMAC DRBG before the DRBG must be reseeded?
 ///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B1
-pub const HMAC_NIST_RESEED_INTERVAL: u64 = 100_000;
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B2
+pub const HMAC_NIST_RESEED_INTERVAL: u64 = 10_000;
 
 pub struct HmacDrbg<H: Mac + KeyInit + FixedOutputReset> {
     // key - Value of `seedlen` bits
