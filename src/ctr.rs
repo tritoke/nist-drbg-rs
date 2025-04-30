@@ -37,7 +37,7 @@ pub const AES_CTR_MAX_RESEED_INTERVAL: u64 = 1 << 48;
 /// What is the recommended number of calls to CTR DRBG before the DRBG must be reseeded?
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B3
-pub const CTR_NIST_RESEED_INTERVAL: u64 = 100_000;
+pub const CTR_NIST_RESEED_INTERVAL: u64 = 10_000; // TODO the appendix says 100k, but this is larger than max?!
 
 pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> {
     // key used for block cipher encryption
@@ -77,7 +77,7 @@ impl CtrPolicy {
             return self
                 .policy
                 .reseed_limit
-                .unwrap_or(CTR_NIST_RESEED_INTERVAL)
+                .unwrap_or(1000) // TODO: what should this even be?
                 .clamp(1, TDEA_CTR_MAX_RESEED_INTERVAL);
         }
         self.policy
