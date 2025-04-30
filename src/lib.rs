@@ -1,6 +1,7 @@
 #![no_std]
 
 use core::{error::Error, fmt::Display};
+use digest::OutputSizeUser;
 
 // Should we feature lock this? We don't need it for Hmac, but will for Hash
 // and CTR
@@ -27,10 +28,7 @@ pub use ctr::*;
 #[derive(Debug)]
 pub enum SeedError {
     InsufficientEntropy,
-    LengthError {
-        max_size: usize,
-        requested_size: usize,
-    },
+    LengthError { max_size: u64, requested_size: u64 },
     EmptyNonce,
     CounterExhausted,
 }
@@ -38,17 +36,38 @@ pub enum SeedError {
 impl Display for SeedError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SeedError::InsufficientEntropy => f.write_str("Insufficient entropy was provided to meet the minimum supported entropy level of 112 bits"),
-            SeedError::LengthError { max_size, requested_size } => {
-                write!(f, "Requested size of {requested_size} bytes exceeds maximum size of {max_size} bytes")
-            },
+            SeedError::InsufficientEntropy => f.write_str(
+                "Insufficient entropy was provided to meet the minimum supported entropy level",
+            ),
+            SeedError::LengthError {
+                max_size,
+                requested_size,
+            } => {
+                write!(
+                    f,
+                    "Requested size of {requested_size} bytes exceeds maximum size of {max_size} bytes"
+                )
+            }
             SeedError::EmptyNonce => f.write_str("Nonce must not be empty"),
-            SeedError::CounterExhausted => f.write_str("Counter has been exhaused, reseed")
+            SeedError::CounterExhausted => f.write_str("Counter has been exhaused, reseed"),
         }
     }
 }
 
 impl Error for SeedError {}
+
+/// Auxiliary function to determine security strength as per SP 800-57 from
+/// the digest size for hash and hmac based drbg
+fn hash_security_size<H: OutputSizeUser>() -> usize {
+    let digest_size = H::output_size();
+    if digest_size <= 20 {
+        return 16;
+    } else if digest_size <= 28 {
+        return 24;
+    } else {
+        return 32;
+    }
+}
 
 // NOTES:
 // seed (called instantiate in the NIST spec)

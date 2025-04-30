@@ -49,8 +49,8 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // Ensure the personalization string is not too long
         if personalization_string.len() > SEEDLEN {
             return Err(SeedError::LengthError {
-                max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
-                requested_size: personalization_string.len(),
+                max_size: SEEDLEN as u64, // TODO this is really a precise, rather than max issue, different error?
+                requested_size: personalization_string.len() as u64,
             });
         }
 
@@ -157,8 +157,8 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // Ensure that entropy has length SEEDLEN
             if entropy.len() != SEEDLEN {
                 return Err(SeedError::LengthError {
-                    max_size: SEEDLEN, // TODO this is really a precise, rather than max issue, different error?
-                    requested_size: entropy.len(),
+                    max_size: SEEDLEN as u64, // TODO this is really a precise, rather than max issue, different error?
+                    requested_size: entropy.len() as u64,
                 });
             }
 
