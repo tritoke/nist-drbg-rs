@@ -61,7 +61,7 @@ impl HmacPolicy {
         self.policy
             .reseed_limit
             .unwrap_or(HMAC_NIST_RESEED_INTERVAL)
-            .clamp(1, HMAC_MAX_RESEED_INTERVAL)
+            .clamp(2, HMAC_MAX_RESEED_INTERVAL)
     }
 
     fn prediction_resistance(&self) -> PredictionResistance {

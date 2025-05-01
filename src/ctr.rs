@@ -78,12 +78,12 @@ impl CtrPolicy {
                 .policy
                 .reseed_limit
                 .unwrap_or(1000) // TODO: what should this even be?
-                .clamp(1, TDEA_CTR_MAX_RESEED_INTERVAL);
+                .clamp(2, TDEA_CTR_MAX_RESEED_INTERVAL);
         }
         self.policy
             .reseed_limit
             .unwrap_or(CTR_NIST_RESEED_INTERVAL)
-            .clamp(1, AES_CTR_MAX_RESEED_INTERVAL)
+            .clamp(2, AES_CTR_MAX_RESEED_INTERVAL)
     }
 
     fn prediction_resistance(&self) -> PredictionResistance {

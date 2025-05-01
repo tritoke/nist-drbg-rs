@@ -61,7 +61,7 @@ impl HashPolicy {
         self.policy
             .reseed_limit
             .unwrap_or(HASH_NIST_RESEED_INTERVAL)
-            .clamp(1, HASH_MAX_RESEED_INTERVAL)
+            .clamp(2, HASH_MAX_RESEED_INTERVAL)
     }
 
     fn prediction_resistance(&self) -> PredictionResistance {
