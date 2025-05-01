@@ -1,6 +1,8 @@
 use core::marker::PhantomData;
 
-use aes::cipher::{generic_array::GenericArray, BlockCipher, BlockEncrypt, KeyInit, KeySizeUser};
+use aes::cipher::{
+    BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser, generic_array::GenericArray,
+};
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
 
@@ -96,6 +98,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
 
         Self::new_impl(entropy, None, personalization_string, policy)
     }
+
     /// Create a CTR DRBG instance with the use of a derivation function
     pub fn new_with_df(
         entropy: &[u8],
@@ -355,11 +358,13 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
 
 /// Auxiliary function to determine security strength as per SP 800-57 from
 /// the keysize for hash and hmac based drbg
-fn block_cipher_security_size<C: KeySizeUser>() -> usize {
-    // TODO: this currently fails for TDEA
-    // For AES, the keysize is the same as the security size,
-    // but for TDEA we have 21 byte keys and only 112 bits of
-    // security, so in this case we want to return 14
+fn block_cipher_security_size<C: BlockSizeUser + KeySizeUser>() -> usize {
+    // For AES, the key size is the same as the security size,
+    // For TDEA we have 21 byte keys but only 112 bits of security,
+    // so when TDEA is used (8 byte block size) we return 112 / 8 = 14
+    if C::block_size() == 8 {
+        return 14;
+    }
     C::key_size()
 }
 
@@ -559,13 +564,13 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
 }
 
 pub trait CtrModeLimits {
-    /// the recommended number of calls to CTR DRBG before the DRBG must be reseeded
+    /// The recommended number of calls to CTR DRBG before the DRBG must be reseeded
     const DEFAULT_RESEED_INTERVAL: u64;
 
-    /// the maximum number of calls to CTR DRBG before the DRBG must be reseeded
+    /// The maximum number of calls to CTR DRBG before the DRBG must be reseeded
     const MAX_RESEED_INTERVAL: u64;
 
-    /// the maximum number of bytes allowed to be generated in a single call
+    /// The maximum number of bytes allowed to be generated in a single call
     const MAX_OUTPUT: u64;
 }
 
