@@ -201,6 +201,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
         // tmp = tmp XOR provided_data
         xor_into(&mut tmp, provided_data);
 
+        // TODO: clean this up
         // For TDEA we need to set the parity bits from 21 bytes to get
         // a 24 byte key
         if block_len == 8 {
@@ -436,6 +437,11 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     for (i, ki) in key.iter_mut().enumerate() {
         *ki = i as u8;
     }
+    // TODO: clean this up
+    if C::block_size() == 8 {
+        let k = &key.clone()[..21];
+        derive_tdea_key::<C>(&mut key, k);
+    }
 
     // Fill the output bytes with values from BCC to generate SEEDLEN new bytes
     let mut iv = GenericArray::<u8, C::BlockSize>::default();
@@ -460,10 +466,19 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
         }
     }
 
-    // Now we set the key to the first bytes of out and X to the next block_size bytes
-    let key_len = key.len();
-    key.copy_from_slice(&out[..key_len]);
-    ct.copy_from_slice(&out[key_len..]);
+    // TODO: clean this up
+    // For TDEA we need to set the parity bits from 21 bytes to get
+    // a 24 byte key
+    if block_len == 8 {
+        derive_tdea_key::<C>(&mut key, &out[..21]);
+        ct.copy_from_slice(&out[21..]);
+    }
+    // For AES we simply set the key and value from the output
+    else {
+        let key_len = key.len();
+        key.copy_from_slice(&out[..key_len]);
+        ct.copy_from_slice(&out[key_len..]);
+    }
 
     /*
      * Now we have a new key and value X = ct, we repeatedly encrypt this and fill the out

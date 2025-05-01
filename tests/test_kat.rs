@@ -360,11 +360,6 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
     // buffer to read bytes into
     let mut generated_bytes = vec![0; info.returned_bits_len / 8];
 
-    // TODO: when we use Triple DES there's a bug, need to fix it
-    if info.algorithm_name.contains("3KeyTDEA") {
-        return true;
-    }
-
     // Create the correct Drbg from the algorithm name
     let mut drbg;
     match name {
