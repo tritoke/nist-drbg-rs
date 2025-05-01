@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
 use aes::cipher::{
-    generic_array::GenericArray,
-    typenum::{U21, U24, U8},
     BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
+    generic_array::GenericArray,
+    typenum::{U8, U21, U24},
 };
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
@@ -620,27 +620,15 @@ impl BlockEncrypt for TdesEde3ShortKey {
 
 /// Auxiliary function to compute and set parity bits of TDEA key
 fn derive_tdea_key(in_key: &GenericArray<u8, U21>, out_key: &mut GenericArray<u8, U24>) {
-    let mut tdes_key: [u8; 24] = [0; 24];
-    derive_des_key(&mut tdes_key[..8], &in_key[..7]);
-    derive_des_key(&mut tdes_key[8..16], &in_key[7..14]);
-    derive_des_key(&mut tdes_key[16..24], &in_key[14..21]);
-
-    out_key.copy_from_slice(&tdes_key);
+    derive_des_key(&mut out_key[..8], &in_key[..7]);
+    derive_des_key(&mut out_key[8..16], &in_key[7..14]);
+    derive_des_key(&mut out_key[16..24], &in_key[14..21]);
 }
 
 /// Auxiliary function to compute and set parity bits of DES key
 fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
-    // Set key as a u64, probably a more rust-way to do this
-    // let k: u64 = (in_key[0] as u64) << 48
-    //     | (in_key[1] as u64) << 40
-    //     | (in_key[2] as u64) << 32
-    //     | (in_key[3] as u64) << 24
-    //     | (in_key[4] as u64) << 16
-    //     | (in_key[5] as u64) << 8
-    //     | (in_key[6] as u64);
-
-    // Sam: this is nicer if its correct
-    let k = u64::from_be_bytes([
+    // First set key as a u64 to extract out 7-bit chunks
+    let mut k = u64::from_be_bytes([
         0, in_key[0], in_key[1], in_key[2], in_key[3], in_key[4], in_key[5], in_key[6],
     ]);
 
@@ -649,7 +637,8 @@ fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
     let mut key_byte: u8;
     let mut parity_bit: u8;
     for i in 0..8 {
-        key_byte = ((k >> (7 * i)) & 0x7f) as u8;
+        key_byte = (k & 0x7f) as u8;
+        k >>= 7;
         parity_bit = (key_byte.count_ones() & 1) as u8;
         out_key[7 - i] = parity_bit | (key_byte << 1)
     }
