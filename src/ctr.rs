@@ -367,7 +367,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
 /// Auxiliary function to compute and set parity bits of DES key
 fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
     // Set key as a u64, probably a more rust-way to do this
-    let mut k: u64 = (in_key[0] as u64) << 48
+    let k: u64 = (in_key[0] as u64) << 48
         | (in_key[1] as u64) << 40
         | (in_key[2] as u64) << 32
         | (in_key[3] as u64) << 24
@@ -380,10 +380,9 @@ fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
     let mut key_byte: u8;
     let mut parity_bit: u8;
     for i in 0..8 {
-        key_byte = (k & 0x7f) as u8;
-        k >>= 7;
-        parity_bit = (key_byte.count_ones() % 2) as u8;
-        out_key[7 - i] = (key_byte << 1) | (parity_bit)
+        key_byte = (k >> (7 * i) & 0x7f) as u8;
+        parity_bit = (key_byte.count_ones() & 1) as u8;
+        out_key[7 - i] = parity_bit | (key_byte << 1)
     }
 }
 

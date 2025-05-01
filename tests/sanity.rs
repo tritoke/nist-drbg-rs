@@ -81,20 +81,20 @@ fn test_tdea_ctr() {
     assert_eq!(buf, returned_bytes);
 }
 
-// #[test]
-// fn test_tdea_ctr_add() {
-//     let entropy: &[u8] = &hex!("37a71a5e7adb233e438dbca9e2e89d0a1c927de79554bc8650f70d5141");
-//     let add1: &[u8] = &hex!("531197ce30a47ed6703b4f2f1afef74428fa86f42637906c99085903fd");
-//     let add2: &[u8] = &hex!("e3737cb398aa345f3747da9b7f8c7d9144f72727c4ff05885f9d0d69e4");
-//     let returned_bytes: &[u8] =
-//         &hex!("1b064c87608031d0082f7c300ef0f4fdd2590c88b0ef0f0c474341e47b062b6e");
-//     let mut drbg = TdeaCtrDrbg::new(entropy, &[]).unwrap();
+#[test]
+fn test_tdea_ctr_add() {
+    let entropy: &[u8] = &hex!("37a71a5e7adb233e438dbca9e2e89d0a1c927de79554bc8650f70d5141");
+    let add1: &[u8] = &hex!("531197ce30a47ed6703b4f2f1afef74428fa86f42637906c99085903fd");
+    let add2: &[u8] = &hex!("e3737cb398aa345f3747da9b7f8c7d9144f72727c4ff05885f9d0d69e4");
+    let returned_bytes: &[u8] =
+        &hex!("1b064c87608031d0082f7c300ef0f4fdd2590c88b0ef0f0c474341e47b062b6e");
+    let mut drbg = TdeaCtrDrbg::new(entropy, &[], Policy::default()).unwrap();
 
-//     let mut buf: [u8; 32] = [0; 32];
-//     let _ = drbg.random_bytes_extra(&mut buf, add1);
-//     let _ = drbg.random_bytes_extra(&mut buf, add2);
-//     assert_eq!(buf, returned_bytes);
-// }
+    let mut buf: [u8; 32] = [0; 32];
+    let _ = drbg.random_bytes_extra(&mut buf, add1);
+    let _ = drbg.random_bytes_extra(&mut buf, add2);
+    assert_eq!(buf, returned_bytes);
+}
 
 #[test]
 fn test_aes_ctr() {
