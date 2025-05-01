@@ -52,21 +52,21 @@ pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize
     derivation_function: bool,
 
     // Limits for max calls to generate before reseeding
-    limits: CtrPolicy,
+    limits: CtrDrbgPolicy,
 }
 
 // policy specifically for the CtrDrbg, we can use this to enforce limits on a per-DRBG type basis
-struct CtrPolicy {
+struct CtrDrbgPolicy {
     policy: crate::Policy,
 }
 
-impl From<crate::Policy> for CtrPolicy {
+impl From<crate::Policy> for CtrDrbgPolicy {
     fn from(policy: crate::Policy) -> Self {
         Self { policy }
     }
 }
 
-impl CtrPolicy {
+impl CtrDrbgPolicy {
     fn reseed_limit(&self, tdea_mode: bool) -> u64 {
         // When prediciton resistance is enabled, a reseed is forced after every
         // call to generate, which is the same as a max-limit of 2 for our code
@@ -91,6 +91,7 @@ impl CtrPolicy {
 }
 
 impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
+    /// Create a CTR DRBG instance without the use of a derivation function
     pub fn new(
         entropy: &[u8],
         personalization_string: &[u8],
@@ -114,7 +115,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
 
         Self::new_impl(entropy, None, personalization_string, policy)
     }
-
+    /// Create a CTR DRBG instance with the use of a derivation function
     pub fn new_with_df(
         entropy: &[u8],
         nonce: &[u8],
@@ -165,15 +166,12 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // into seed_material
             seed_material[..personalization_string.len()].copy_from_slice(personalization_string);
 
-            // Finally compute
             // seed_material = entropy ^ pad(personalization_string)
             xor_into(&mut seed_material[..], entropy);
         }
 
-        // We now have the processed seed material, which
-        // we now pass into the update function
+        // We now have the processed seed material, which we now pass into the update function
         let mut ctr_drbg = Self {
-            // Default value is zeroed
             key: Default::default(),
             value: Default::default(),
             reseed_counter: 1,
@@ -203,7 +201,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             increment(&mut self.value);
 
             // Add an encryption block, note encrypt_block works in-place
-            let mut ct = self.value.clone(); // TODO do i have to clone?
+            let mut ct = self.value.clone();
             cipher.encrypt_block(&mut ct);
 
             // tmp = tmp || Enc_K(V)
@@ -230,11 +228,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         entropy: &[u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        // Whether or not we use a derivation_function, we first populate
-        // seed_material with the user input
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
-
-        // If additional_input is None, use b"" for now...
         let additional_input = additional_input.unwrap_or(b"");
 
         // If we use a derivation function, then entropy has a minimum

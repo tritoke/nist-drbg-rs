@@ -35,23 +35,23 @@ pub struct HmacDrbg<H: Mac + KeyInit + FixedOutputReset> {
     reseed_counter: u64,
 
     // Limits for max calls to generate before reseeding
-    limits: HmacPolicy,
+    limits: HmacDrbgPolicy,
 
     _hasher: PhantomData<H>,
 }
 
 // policy specifically for the HmacDrbg, we can use this to enforce limits on a per-DRBG type basis
-struct HmacPolicy {
+struct HmacDrbgPolicy {
     policy: crate::Policy,
 }
 
-impl From<crate::Policy> for HmacPolicy {
+impl From<crate::Policy> for HmacDrbgPolicy {
     fn from(policy: crate::Policy) -> Self {
         Self { policy }
     }
 }
 
-impl HmacPolicy {
+impl HmacDrbgPolicy {
     fn reseed_limit(&self) -> u64 {
         // When prediciton resistance is enabled, a reseed is forced after every
         // call to generate, which is the same as a max-limit of 2 for our code
