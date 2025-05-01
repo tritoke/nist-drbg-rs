@@ -201,10 +201,18 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
         // tmp = tmp XOR provided_data
         xor_into(&mut tmp, provided_data);
 
-        // set key as the leftmore and value as the rightmost bytes of tmp
-        let key_len = self.key.len();
-        self.key.copy_from_slice(&tmp[..key_len]);
-        self.value.copy_from_slice(&tmp[key_len..]);
+        // For TDEA we need to set the parity bits from 21 bytes to get
+        // a 24 byte key
+        if block_len == 8 {
+            derive_tdea_key::<C>(&mut self.key, &tmp[..21]);
+            self.value.copy_from_slice(&tmp[21..]);
+        }
+        // For AES we simply set the key and value from the output
+        else {
+            let key_len = self.key.len();
+            self.key.copy_from_slice(&tmp[..key_len]);
+            self.value.copy_from_slice(&tmp[key_len..]);
+        }
     }
 
     fn reseed_core(
@@ -354,6 +362,42 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
 
         Ok(())
     }
+}
+
+/// Auxiliary function to compute and set parity bits of DES key
+fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
+    // Set key as a u64, probably a more rust-way to do this
+    let mut k: u64 = (in_key[0] as u64) << 48
+        | (in_key[1] as u64) << 40
+        | (in_key[2] as u64) << 32
+        | (in_key[3] as u64) << 24
+        | (in_key[4] as u64) << 16
+        | (in_key[5] as u64) << 8
+        | (in_key[6] as u64);
+
+    // Set the 8 bytes of the out key with 7-bits from the key and one
+    // parity bit
+    let mut key_byte: u8;
+    let mut parity_bit: u8;
+    for i in 0..8 {
+        key_byte = (k & 0x7f) as u8;
+        k >>= 7;
+        parity_bit = (key_byte.count_ones() % 2) as u8;
+        out_key[7 - i] = (key_byte << 1) | (parity_bit)
+    }
+}
+
+/// Auxiliary function to compute and set parity bits of TDEA key
+fn derive_tdea_key<C: BlockCipher + KeyInit + BlockEncrypt>(
+    out_key: &mut GenericArray<u8, C::KeySize>,
+    in_key: &[u8],
+) {
+    let mut tdes_key: [u8; 24] = [0; 24];
+    derive_des_key(&mut tdes_key[..8], &in_key[..7]);
+    derive_des_key(&mut tdes_key[8..16], &in_key[7..14]);
+    derive_des_key(&mut tdes_key[16..24], &in_key[14..21]);
+
+    out_key.copy_from_slice(&tdes_key);
 }
 
 /// Auxiliary function to determine security strength as per SP 800-57 from

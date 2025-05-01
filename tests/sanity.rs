@@ -1,8 +1,5 @@
-use nist_drbg_rs::AesCtr128Drbg;
-use nist_drbg_rs::Drbg;
-use nist_drbg_rs::HmacSha1Drbg;
-use nist_drbg_rs::Policy;
-use nist_drbg_rs::Sha1Drbg;
+use nist_drbg_rs::{AesCtr128Drbg, HmacSha1Drbg, Sha1Drbg, TdeaCtrDrbg};
+use nist_drbg_rs::{Drbg, Policy};
 
 use hex_lit::hex;
 
@@ -70,19 +67,19 @@ fn test_hmac_add() {
     assert_eq!(buf, returned_bytes);
 }
 
-// #[test]
-// fn test_tdea_ctr() {
-//     let entropy: &[u8] = &hex!("4cd97f1701716d1a22f90b55c569c8f2b91aa53322653dcae809abc5c6");
-//     let nonce: &[u8] = &[];
-//     let returned_bytes: &[u8] =
-//         &hex!("4353dd937ec55e6733cf7a5d2cea557ce8e3fcc6cdb18e44395e4b1c4669c9d1");
-//     let mut drbg = TdeaCtrDrbg::new(entropy, nonce).unwrap();
+#[test]
+fn test_tdea_ctr() {
+    let entropy: &[u8] = &hex!("4cd97f1701716d1a22f90b55c569c8f2b91aa53322653dcae809abc5c6");
+    let nonce: &[u8] = &[];
+    let returned_bytes: &[u8] =
+        &hex!("4353dd937ec55e6733cf7a5d2cea557ce8e3fcc6cdb18e44395e4b1c4669c9d1");
+    let mut drbg = TdeaCtrDrbg::new(entropy, nonce, Policy::default()).unwrap();
 
-//     let mut buf: [u8; 32] = [0; 32];
-//     let _ = drbg.random_bytes(&mut buf);
-//     let _ = drbg.random_bytes(&mut buf);
-//     assert_eq!(buf, returned_bytes);
-// }
+    let mut buf: [u8; 32] = [0; 32];
+    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.random_bytes(&mut buf);
+    assert_eq!(buf, returned_bytes);
+}
 
 // #[test]
 // fn test_tdea_ctr_add() {

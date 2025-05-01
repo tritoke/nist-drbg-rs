@@ -1,4 +1,4 @@
-#![no_std]
+// #![no_std]
 
 use core::{error::Error, fmt::Display};
 use digest::OutputSizeUser;
