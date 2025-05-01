@@ -1,10 +1,9 @@
-use aes::cipher::BlockEncrypt;
-use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
+use aes::cipher::{BlockCipher, BlockEncrypt, KeyInit, KeySizeUser, generic_array::GenericArray};
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
 
 use crate::arithmetic::increment;
-use crate::{Drbg, Policy, PredictionResistance, SeedError, block_cipher_security_size};
+use crate::{Drbg, Policy, PredictionResistance, SeedError};
 
 /// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
 /// when using CTR DRBG and a derivation function
@@ -389,9 +388,17 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
     }
 }
 
-/// Aux function in 10.3.2
-/// we really want to return this: [u8; C:BlockSize + C:KeySize] or should
-/// we include this into the input like with hash_df
+/// Auxiliary function to determine security strength as per SP 800-57 from
+/// the keysize for hash and hmac based drbg
+fn block_cipher_security_size<C: KeySizeUser>() -> usize {
+    // TODO: this currently fails for TDEA
+    // For AES, the keysize is the same as the security size,
+    // but for TDEA we have 21 byte keys and only 112 bits of
+    // security, so in this case we want to return 14
+    C::key_size()
+}
+
+/// Auxiliary function in Section 10.3.2
 fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     seed_material: &[&[u8]],
     out: &mut [u8],

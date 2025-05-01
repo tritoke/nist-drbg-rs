@@ -1,6 +1,5 @@
 #![no_std]
 
-use aes::cipher::KeySizeUser;
 use core::{error::Error, fmt::Display};
 use digest::OutputSizeUser;
 
@@ -78,16 +77,6 @@ fn hash_security_size<H: OutputSizeUser>() -> usize {
     } else {
         32
     }
-}
-
-/// Auxiliary function to determine security strength as per SP 800-57 from
-/// the keysize for hash and hmac based drbg
-fn block_cipher_security_size<C: KeySizeUser>() -> usize {
-    // TODO: this currently fails for TDEA
-    // For AES, the keysize is the same as the security size,
-    // but for TDEA we have 21 byte keys and only 112 bits of
-    // security, so in this case we want to return 14
-    C::key_size()
 }
 
 // NOTES:
