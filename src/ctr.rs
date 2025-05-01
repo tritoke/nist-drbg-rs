@@ -52,27 +52,27 @@ pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize
     derivation_function: bool,
 
     // Limits for max calls to generate before reseeding
-    limits: CtrDrbgPolicy,
+    limits: CtrDrbgPolicy<16>, // TODO
 }
 
 // policy specifically for the CtrDrbg, we can use this to enforce limits on a per-DRBG type basis
-struct CtrDrbgPolicy {
+struct CtrDrbgPolicy<const BLOCKSIZE: usize> {
     policy: crate::Policy,
 }
 
-impl From<crate::Policy> for CtrDrbgPolicy {
+impl<const BLOCKSIZE: usize> From<crate::Policy> for CtrDrbgPolicy<BLOCKSIZE> {
     fn from(policy: crate::Policy) -> Self {
         Self { policy }
     }
 }
 
-impl CtrDrbgPolicy {
-    fn reseed_limit(&self, tdea_mode: bool) -> u64 {
+impl<const BLOCKSIZE: usize> CtrDrbgPolicy<BLOCKSIZE> {
+    fn reseed_limit(&self) -> u64 {
         // When prediciton resistance is enabled, a reseed is forced after every
         // call to generate, which is the same as a max-limit of 2 for our code
         if self.prediction_resistance() == PredictionResistance::Enabled {
             return 2;
-        } else if tdea_mode {
+        } else if BLOCKSIZE == 8 {
             return self
                 .policy
                 .reseed_limit
@@ -83,6 +83,13 @@ impl CtrDrbgPolicy {
             .reseed_limit
             .unwrap_or(CTR_NIST_RESEED_INTERVAL)
             .clamp(2, AES_CTR_MAX_RESEED_INTERVAL)
+    }
+
+    fn max_output(&self) -> u64 {
+        if BLOCKSIZE == 8 {
+            return TDEA_CTR_MAX_OUTPUT;
+        }
+        AES_CTR_MAX_OUTPUT
     }
 
     fn prediction_resistance(&self) -> PredictionResistance {
@@ -293,26 +300,15 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        let block_len = C::block_size();
-        let tdea_mode = block_len == 8;
-
         // First check we do not require a reseed per the Drbg policy
-        if self.reseed_counter > self.limits.reseed_limit(tdea_mode) {
+        if self.reseed_counter > self.limits.reseed_limit() {
             return Err(SeedError::CounterExhausted);
         }
 
-        // TODO: is this the best idea...
-        // Maximum output is different for AES and TDEA modes...
-        let max_output = if tdea_mode {
-            TDEA_CTR_MAX_OUTPUT
-        } else {
-            AES_CTR_MAX_OUTPUT
-        };
-
         // Now we ensure we're not requesting too many bytes
-        if (buf.len() as u64) > max_output {
+        if (buf.len() as u64) > self.limits.max_output() {
             return Err(SeedError::LengthError {
-                max_size: max_output,
+                max_size: self.limits.max_output(),
                 requested_size: buf.len() as u64,
             });
         }
@@ -350,6 +346,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         let cipher = C::new(&self.key);
 
         // Fill buf with random bytes by repeatedly appending encryptions
+        let block_len = C::block_size();
         let bufsz = buf.len();
         let m = bufsz.div_ceil(block_len);
         for i in 0..m {
