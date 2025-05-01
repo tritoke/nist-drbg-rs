@@ -1,4 +1,6 @@
-use aes::cipher::{BlockCipher, BlockEncrypt, KeyInit, KeySizeUser, generic_array::GenericArray};
+use core::marker::PhantomData;
+
+use aes::cipher::{generic_array::GenericArray, BlockCipher, BlockEncrypt, KeyInit, KeySizeUser};
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
 
@@ -11,34 +13,8 @@ use crate::{Drbg, Policy, PredictionResistance, SeedError};
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 3
 pub const CTR_MAX_LENGTH: u64 = 1 << (35 - 3);
 
-/// What is the maximum number of bytes allowed to be generated in a single call when using AES
-/// computed from min(2**13, (2**64 - 4) * 64) // 8 with blocklen = ctr_len
-///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 3
-pub const TDEA_CTR_MAX_OUTPUT: u64 = 1024;
-
-/// What is the maximum number of bytes allowed to be generated in a single call when using AES
-/// computed from min(2**19, (2**128 - 4) * 128) // 8 with blocklen = ctr_len
-///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 3
-pub const AES_CTR_MAX_OUTPUT: u64 = 65536;
-
-/// What is the maximum number of calls to CTR DRBG before the DRBG must be reseeded when TDEA is used as the block cipher
-///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 3
-pub const TDEA_CTR_MAX_RESEED_INTERVAL: u64 = 1 << 32;
-
-/// What is the maximum number of calls to CTR DRBG before the DRBG must be reseeded when AES is used as the block cipher
-///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 3
-pub const AES_CTR_MAX_RESEED_INTERVAL: u64 = 1 << 48;
-
-/// What is the recommended number of calls to CTR DRBG before the DRBG must be reseeded?
-///
-/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) Appendix B3
-pub const CTR_NIST_RESEED_INTERVAL: u64 = 10_000; // TODO the appendix says 100k, but this is larger than max?!
-
-pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> {
+pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: usize>
+{
     // key used for block cipher encryption
     key: GenericArray<u8, C::KeySize>,
 
@@ -52,44 +28,40 @@ pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize
     derivation_function: bool,
 
     // Limits for max calls to generate before reseeding
-    limits: CtrDrbgPolicy<16>, // TODO
+    limits: CtrDrbgPolicy<L>,
 }
 
 // policy specifically for the CtrDrbg, we can use this to enforce limits on a per-DRBG type basis
-struct CtrDrbgPolicy<const BLOCKSIZE: usize> {
+struct CtrDrbgPolicy<L: CtrModeLimits> {
     policy: crate::Policy,
+    _limits: PhantomData<L>,
 }
 
-impl<const BLOCKSIZE: usize> From<crate::Policy> for CtrDrbgPolicy<BLOCKSIZE> {
+impl<L: CtrModeLimits> From<crate::Policy> for CtrDrbgPolicy<L> {
     fn from(policy: crate::Policy) -> Self {
-        Self { policy }
+        Self {
+            policy,
+            _limits: PhantomData,
+        }
     }
 }
 
-impl<const BLOCKSIZE: usize> CtrDrbgPolicy<BLOCKSIZE> {
+impl<L: CtrModeLimits> CtrDrbgPolicy<L> {
     fn reseed_limit(&self) -> u64 {
         // When prediciton resistance is enabled, a reseed is forced after every
         // call to generate, which is the same as a max-limit of 2 for our code
         if self.prediction_resistance() == PredictionResistance::Enabled {
-            return 2;
-        } else if BLOCKSIZE == 8 {
-            return self
-                .policy
+            2
+        } else {
+            self.policy
                 .reseed_limit
-                .unwrap_or(1000) // TODO: what should this even be?
-                .clamp(2, TDEA_CTR_MAX_RESEED_INTERVAL);
+                .unwrap_or(L::DEFAULT_RESEED_INTERVAL)
+                .clamp(2, L::MAX_RESEED_INTERVAL)
         }
-        self.policy
-            .reseed_limit
-            .unwrap_or(CTR_NIST_RESEED_INTERVAL)
-            .clamp(2, AES_CTR_MAX_RESEED_INTERVAL)
     }
 
     fn max_output(&self) -> u64 {
-        if BLOCKSIZE == 8 {
-            return TDEA_CTR_MAX_OUTPUT;
-        }
-        AES_CTR_MAX_OUTPUT
+        L::MAX_OUTPUT
     }
 
     fn prediction_resistance(&self) -> PredictionResistance {
@@ -97,7 +69,9 @@ impl<const BLOCKSIZE: usize> CtrDrbgPolicy<BLOCKSIZE> {
     }
 }
 
-impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
+impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: usize>
+    CtrDrbg<C, L, SEEDLEN>
+{
     /// Create a CTR DRBG instance without the use of a derivation function
     pub fn new(
         entropy: &[u8],
@@ -556,7 +530,9 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     cipher.encrypt_block(out);
 }
 
-impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {
+impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: usize> Drbg
+    for CtrDrbg<C, L, SEEDLEN>
+{
     #[inline]
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
         self.reseed_core(entropy, None)
@@ -582,15 +558,42 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for Ctr
     }
 }
 
+pub trait CtrModeLimits {
+    /// the recommended number of calls to CTR DRBG before the DRBG must be reseeded
+    const DEFAULT_RESEED_INTERVAL: u64;
+
+    /// the maximum number of calls to CTR DRBG before the DRBG must be reseeded
+    const MAX_RESEED_INTERVAL: u64;
+
+    /// the maximum number of bytes allowed to be generated in a single call
+    const MAX_OUTPUT: u64;
+}
+
+pub struct AesLimits;
+
+impl CtrModeLimits for AesLimits {
+    const DEFAULT_RESEED_INTERVAL: u64 = 10_000;
+    const MAX_RESEED_INTERVAL: u64 = 1 << 48;
+    const MAX_OUTPUT: u64 = 65536;
+}
+
+pub struct TdeaLimits;
+
+impl CtrModeLimits for TdeaLimits {
+    const DEFAULT_RESEED_INTERVAL: u64 = 1000; // what should this be?
+    const MAX_RESEED_INTERVAL: u64 = 1 << 32;
+    const MAX_OUTPUT: u64 = 1024;
+}
+
 // SEEDLEN = BlockSize + KeySize
 #[cfg(feature = "tdea-ctr")]
-pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3, { 21 + 8 }>;
+pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3, TdeaLimits, { 21 + 8 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr128Drbg = super::CtrDrbg<Aes128, { 16 + 16 }>;
+pub type AesCtr128Drbg = super::CtrDrbg<Aes128, AesLimits, { 16 + 16 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr192Drbg = super::CtrDrbg<Aes192, { 24 + 16 }>;
+pub type AesCtr192Drbg = super::CtrDrbg<Aes192, AesLimits, { 24 + 16 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr256Drbg = super::CtrDrbg<Aes256, { 32 + 16 }>;
+pub type AesCtr256Drbg = super::CtrDrbg<Aes256, AesLimits, { 32 + 16 }>;
