@@ -1,7 +1,9 @@
 use core::marker::PhantomData;
 
 use aes::cipher::{
-    BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser, generic_array::GenericArray,
+    generic_array::GenericArray,
+    typenum::{U21, U24, U8},
+    BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
 };
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
@@ -201,19 +203,9 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
         // tmp = tmp XOR provided_data
         xor_into(&mut tmp, provided_data);
 
-        // TODO: clean this up
-        // For TDEA we need to set the parity bits from 21 bytes to get
-        // a 24 byte key
-        if block_len == 8 {
-            derive_tdea_key::<C>(&mut self.key, &tmp[..21]);
-            self.value.copy_from_slice(&tmp[21..]);
-        }
-        // For AES we simply set the key and value from the output
-        else {
-            let key_len = self.key.len();
-            self.key.copy_from_slice(&tmp[..key_len]);
-            self.value.copy_from_slice(&tmp[key_len..]);
-        }
+        let key_len = self.key.len();
+        self.key.copy_from_slice(&tmp[..key_len]);
+        self.value.copy_from_slice(&tmp[key_len..]);
     }
 
     fn reseed_core(
@@ -365,41 +357,6 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
     }
 }
 
-/// Auxiliary function to compute and set parity bits of DES key
-fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
-    // Set key as a u64, probably a more rust-way to do this
-    let k: u64 = (in_key[0] as u64) << 48
-        | (in_key[1] as u64) << 40
-        | (in_key[2] as u64) << 32
-        | (in_key[3] as u64) << 24
-        | (in_key[4] as u64) << 16
-        | (in_key[5] as u64) << 8
-        | (in_key[6] as u64);
-
-    // Set the 8 bytes of the out key with 7-bits from the key and one
-    // parity bit
-    let mut key_byte: u8;
-    let mut parity_bit: u8;
-    for i in 0..8 {
-        key_byte = (k >> (7 * i) & 0x7f) as u8;
-        parity_bit = (key_byte.count_ones() & 1) as u8;
-        out_key[7 - i] = parity_bit | (key_byte << 1)
-    }
-}
-
-/// Auxiliary function to compute and set parity bits of TDEA key
-fn derive_tdea_key<C: BlockCipher + KeyInit + BlockEncrypt>(
-    out_key: &mut GenericArray<u8, C::KeySize>,
-    in_key: &[u8],
-) {
-    let mut tdes_key: [u8; 24] = [0; 24];
-    derive_des_key(&mut tdes_key[..8], &in_key[..7]);
-    derive_des_key(&mut tdes_key[8..16], &in_key[7..14]);
-    derive_des_key(&mut tdes_key[16..24], &in_key[14..21]);
-
-    out_key.copy_from_slice(&tdes_key);
-}
-
 /// Auxiliary function to determine security strength as per SP 800-57 from
 /// the keysize for hash and hmac based drbg
 fn block_cipher_security_size<C: BlockSizeUser + KeySizeUser>() -> usize {
@@ -437,11 +394,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     for (i, ki) in key.iter_mut().enumerate() {
         *ki = i as u8;
     }
-    // TODO: clean this up
-    if C::block_size() == 8 {
-        let k = &key.clone()[..21];
-        derive_tdea_key::<C>(&mut key, k);
-    }
 
     // Fill the output bytes with values from BCC to generate SEEDLEN new bytes
     let mut iv = GenericArray::<u8, C::BlockSize>::default();
@@ -466,19 +418,9 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
         }
     }
 
-    // TODO: clean this up
-    // For TDEA we need to set the parity bits from 21 bytes to get
-    // a 24 byte key
-    if block_len == 8 {
-        derive_tdea_key::<C>(&mut key, &out[..21]);
-        ct.copy_from_slice(&out[21..]);
-    }
-    // For AES we simply set the key and value from the output
-    else {
-        let key_len = key.len();
-        key.copy_from_slice(&out[..key_len]);
-        ct.copy_from_slice(&out[key_len..]);
-    }
+    let key_len = key.len();
+    key.copy_from_slice(&out[..key_len]);
+    ct.copy_from_slice(&out[key_len..]);
 
     /*
      * Now we have a new key and value X = ct, we repeatedly encrypt this and fill the out
@@ -647,10 +589,75 @@ impl CtrModeLimits for TdeaLimits {
     const MAX_RESEED_INTERVAL: u64 = 1 << 32;
     const MAX_OUTPUT: u64 = 1024;
 }
+/// A wrapper around des::TdesEde3 which supports a key without parity bits
+pub struct TdesEde3ShortKey(TdesEde3);
+
+/* BlockCipher + KeyInit + BlockEncrypt */
+
+impl BlockSizeUser for TdesEde3ShortKey {
+    type BlockSize = U8;
+}
+
+impl BlockCipher for TdesEde3ShortKey {}
+
+impl KeySizeUser for TdesEde3ShortKey {
+    type KeySize = U21;
+}
+
+impl KeyInit for TdesEde3ShortKey {
+    fn new(key: &digest::Key<Self>) -> Self {
+        let mut wide_key: GenericArray<u8, U24> = GenericArray::default();
+        derive_tdea_key(key, &mut wide_key);
+        Self(TdesEde3::new(&wide_key))
+    }
+}
+
+impl BlockEncrypt for TdesEde3ShortKey {
+    fn encrypt_with_backend(&self, f: impl aes::cipher::BlockClosure<BlockSize = Self::BlockSize>) {
+        self.0.encrypt_with_backend(f);
+    }
+}
+
+/// Auxiliary function to compute and set parity bits of TDEA key
+fn derive_tdea_key(in_key: &GenericArray<u8, U21>, out_key: &mut GenericArray<u8, U24>) {
+    let mut tdes_key: [u8; 24] = [0; 24];
+    derive_des_key(&mut tdes_key[..8], &in_key[..7]);
+    derive_des_key(&mut tdes_key[8..16], &in_key[7..14]);
+    derive_des_key(&mut tdes_key[16..24], &in_key[14..21]);
+
+    out_key.copy_from_slice(&tdes_key);
+}
+
+/// Auxiliary function to compute and set parity bits of DES key
+fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
+    // Set key as a u64, probably a more rust-way to do this
+    // let k: u64 = (in_key[0] as u64) << 48
+    //     | (in_key[1] as u64) << 40
+    //     | (in_key[2] as u64) << 32
+    //     | (in_key[3] as u64) << 24
+    //     | (in_key[4] as u64) << 16
+    //     | (in_key[5] as u64) << 8
+    //     | (in_key[6] as u64);
+
+    // Sam: this is nicer if its correct
+    let k = u64::from_be_bytes([
+        0, in_key[0], in_key[1], in_key[2], in_key[3], in_key[4], in_key[5], in_key[6],
+    ]);
+
+    // Set the 8 bytes of the out key with 7-bits from the key and one
+    // parity bit
+    let mut key_byte: u8;
+    let mut parity_bit: u8;
+    for i in 0..8 {
+        key_byte = ((k >> (7 * i)) & 0x7f) as u8;
+        parity_bit = (key_byte.count_ones() & 1) as u8;
+        out_key[7 - i] = parity_bit | (key_byte << 1)
+    }
+}
 
 // SEEDLEN = BlockSize + KeySize
 #[cfg(feature = "tdea-ctr")]
-pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3, TdeaLimits, { 21 + 8 }>;
+pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3ShortKey, TdeaLimits, { 21 + 8 }>;
 
 #[cfg(feature = "aes-ctr")]
 pub type AesCtr128Drbg = super::CtrDrbg<Aes128, AesLimits, { 16 + 16 }>;
