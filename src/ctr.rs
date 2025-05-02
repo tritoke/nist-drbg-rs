@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
 use aes::cipher::{
-    BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
     generic_array::GenericArray,
-    typenum::{U8, U21, U24},
+    typenum::{U21, U24, U8},
+    BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
 };
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
@@ -632,15 +632,16 @@ fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
         0, in_key[0], in_key[1], in_key[2], in_key[3], in_key[4], in_key[5], in_key[6],
     ]);
 
+    // ensure key bits are always in the top 7 bits of the lowest byte as we shift
+    k <<= 1;
+
     // Set the 8 bytes of the out key with 7-bits from the key and one
     // parity bit
-    let mut key_byte: u8;
-    let mut parity_bit: u8;
     for i in 0..8 {
-        key_byte = (k & 0x7f) as u8;
+        let key_byte = k as u8;
         k >>= 7;
-        parity_bit = (key_byte.count_ones() & 1) as u8;
-        out_key[7 - i] = parity_bit | (key_byte << 1)
+        let parity_bit = (key_byte.count_ones() & 1) as u8;
+        out_key[7 - i] = parity_bit | (key_byte & !1);
     }
 }
 
