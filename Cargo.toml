@@ -7,6 +7,7 @@ keywords = ["drbg", "csprng", "nist"]
 categories = ["cryptography"]
 authors = [
     "Sam Leonard <tritoke@protonmail.com>",
+    "Giacomo Pope <giacomopope@gmail.com>",
 ]
 description = "Implementation of NIST SP 800-90A Rev. 1 for Deterministic Random Bit Generators"
 
