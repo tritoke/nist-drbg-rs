@@ -255,50 +255,79 @@ fn create_hmac_drbg_from_name(question: &Question, info: &TestInformation) -> Bo
 }
 
 fn create_ctr_drbg_from_name(question: &Question, info: &TestInformation) -> Box<dyn Drbg> {
+    let policy = if info.prediction_resistance {
+        Policy::default().with_prediction_resistance(PredictionResistance::Enabled)
+    } else {
+        Policy::default().with_prediction_resistance(PredictionResistance::Disabled)
+    };
     let drbg: Box<dyn Drbg> = match info.algorithm_name.as_str() {
         "3KeyTDEA use df" => Box::new(
             TdeaCtrDrbg::new_with_df(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
         "3KeyTDEA no df" => Box::new(
-            TdeaCtrDrbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+            TdeaCtrDrbg::new(
+                &question.entropy_input,
+                &question.personalization_string,
+                policy,
+            )
+            .unwrap(),
         ),
         "AES-128 use df" => Box::new(
             AesCtr128Drbg::new_with_df(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
         "AES-128 no df" => Box::new(
-            AesCtr128Drbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+            AesCtr128Drbg::new(
+                &question.entropy_input,
+                &question.personalization_string,
+                policy,
+            )
+            .unwrap(),
         ),
         "AES-192 use df" => Box::new(
             AesCtr192Drbg::new_with_df(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
         "AES-192 no df" => Box::new(
-            AesCtr192Drbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+            AesCtr192Drbg::new(
+                &question.entropy_input,
+                &question.personalization_string,
+                policy,
+            )
+            .unwrap(),
         ),
         "AES-256 use df" => Box::new(
             AesCtr256Drbg::new_with_df(
                 &question.entropy_input,
                 &question.nonce,
                 &question.personalization_string,
+                policy,
             )
             .unwrap(),
         ),
         "AES-256 no df" => Box::new(
-            AesCtr256Drbg::new(&question.entropy_input, &question.personalization_string).unwrap(),
+            AesCtr256Drbg::new(
+                &question.entropy_input,
+                &question.personalization_string,
+                policy,
+            )
+            .unwrap(),
         ),
         _ => panic!("Unexpected algorithm: {:?}", info.algorithm_name.as_str()),
     };
@@ -330,11 +359,6 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
 
     // buffer to read bytes into
     let mut generated_bytes = vec![0; info.returned_bits_len / 8];
-
-    // TODO: when we use Triple DES there's a bug, need to fix it
-    if info.algorithm_name.contains("3KeyTDEA") {
-        return true;
-    }
 
     // Create the correct Drbg from the algorithm name
     let mut drbg;

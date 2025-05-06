@@ -35,23 +35,23 @@ pub struct HashDrbg<H: Digest, const SEEDLEN: usize> {
     reseed_counter: u64,
 
     // Limits for max calls to generate before reseeding
-    limits: HashPolicy,
+    limits: HashDrbgPolicy,
 
     _hasher: PhantomData<H>,
 }
 
 // policy specifically for the HashDrbg, we can use this to enforce limits on a per-DRBG type basis
-struct HashPolicy {
+struct HashDrbgPolicy {
     policy: crate::Policy,
 }
 
-impl From<crate::Policy> for HashPolicy {
+impl From<crate::Policy> for HashDrbgPolicy {
     fn from(policy: crate::Policy) -> Self {
         Self { policy }
     }
 }
 
-impl HashPolicy {
+impl HashDrbgPolicy {
     fn reseed_limit(&self) -> u64 {
         // When prediciton resistance is enabled, a reseed is forced after every
         // call to generate, which is the same as a max-limit of 2 for our code
@@ -61,7 +61,7 @@ impl HashPolicy {
         self.policy
             .reseed_limit
             .unwrap_or(HASH_NIST_RESEED_INTERVAL)
-            .clamp(1, HASH_MAX_RESEED_INTERVAL)
+            .clamp(2, HASH_MAX_RESEED_INTERVAL)
     }
 
     fn prediction_resistance(&self) -> PredictionResistance {

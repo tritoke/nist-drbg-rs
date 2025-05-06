@@ -1,8 +1,5 @@
-use nist_drbg_rs::AesCtr128Drbg;
-use nist_drbg_rs::Drbg;
-use nist_drbg_rs::HmacSha1Drbg;
-use nist_drbg_rs::Policy;
-use nist_drbg_rs::Sha1Drbg;
+use nist_drbg_rs::{AesCtr128Drbg, HmacSha1Drbg, Sha1Drbg, TdeaCtrDrbg};
+use nist_drbg_rs::{Drbg, Policy};
 
 use hex_lit::hex;
 
@@ -70,34 +67,34 @@ fn test_hmac_add() {
     assert_eq!(buf, returned_bytes);
 }
 
-// #[test]
-// fn test_tdea_ctr() {
-//     let entropy: &[u8] = &hex!("4cd97f1701716d1a22f90b55c569c8f2b91aa53322653dcae809abc5c6");
-//     let nonce: &[u8] = &[];
-//     let returned_bytes: &[u8] =
-//         &hex!("4353dd937ec55e6733cf7a5d2cea557ce8e3fcc6cdb18e44395e4b1c4669c9d1");
-//     let mut drbg = TdeaCtrDrbg::new(entropy, nonce).unwrap();
+#[test]
+fn test_tdea_ctr() {
+    let entropy: &[u8] = &hex!("4cd97f1701716d1a22f90b55c569c8f2b91aa53322653dcae809abc5c6");
+    let nonce: &[u8] = &[];
+    let returned_bytes: &[u8] =
+        &hex!("4353dd937ec55e6733cf7a5d2cea557ce8e3fcc6cdb18e44395e4b1c4669c9d1");
+    let mut drbg = TdeaCtrDrbg::new(entropy, nonce, Policy::default()).unwrap();
 
-//     let mut buf: [u8; 32] = [0; 32];
-//     let _ = drbg.random_bytes(&mut buf);
-//     let _ = drbg.random_bytes(&mut buf);
-//     assert_eq!(buf, returned_bytes);
-// }
+    let mut buf: [u8; 32] = [0; 32];
+    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.random_bytes(&mut buf);
+    assert_eq!(buf, returned_bytes);
+}
 
-// #[test]
-// fn test_tdea_ctr_add() {
-//     let entropy: &[u8] = &hex!("37a71a5e7adb233e438dbca9e2e89d0a1c927de79554bc8650f70d5141");
-//     let add1: &[u8] = &hex!("531197ce30a47ed6703b4f2f1afef74428fa86f42637906c99085903fd");
-//     let add2: &[u8] = &hex!("e3737cb398aa345f3747da9b7f8c7d9144f72727c4ff05885f9d0d69e4");
-//     let returned_bytes: &[u8] =
-//         &hex!("1b064c87608031d0082f7c300ef0f4fdd2590c88b0ef0f0c474341e47b062b6e");
-//     let mut drbg = TdeaCtrDrbg::new(entropy, &[]).unwrap();
+#[test]
+fn test_tdea_ctr_add() {
+    let entropy: &[u8] = &hex!("37a71a5e7adb233e438dbca9e2e89d0a1c927de79554bc8650f70d5141");
+    let add1: &[u8] = &hex!("531197ce30a47ed6703b4f2f1afef74428fa86f42637906c99085903fd");
+    let add2: &[u8] = &hex!("e3737cb398aa345f3747da9b7f8c7d9144f72727c4ff05885f9d0d69e4");
+    let returned_bytes: &[u8] =
+        &hex!("1b064c87608031d0082f7c300ef0f4fdd2590c88b0ef0f0c474341e47b062b6e");
+    let mut drbg = TdeaCtrDrbg::new(entropy, &[], Policy::default()).unwrap();
 
-//     let mut buf: [u8; 32] = [0; 32];
-//     let _ = drbg.random_bytes_extra(&mut buf, add1);
-//     let _ = drbg.random_bytes_extra(&mut buf, add2);
-//     assert_eq!(buf, returned_bytes);
-// }
+    let mut buf: [u8; 32] = [0; 32];
+    let _ = drbg.random_bytes_extra(&mut buf, add1);
+    let _ = drbg.random_bytes_extra(&mut buf, add2);
+    assert_eq!(buf, returned_bytes);
+}
 
 #[test]
 fn test_aes_ctr() {
@@ -105,7 +102,7 @@ fn test_aes_ctr() {
     let returned_bytes: &[u8] = &hex!(
         "6545c0529d372443b392ceb3ae3a99a30f963eaf313280f1d1a1e87f9db373d361e75d18018266499cccd64d9bbb8de0185f213383080faddec46bae1f784e5a"
     );
-    let mut drbg = AesCtr128Drbg::new(entropy, &[]).unwrap();
+    let mut drbg = AesCtr128Drbg::new(entropy, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
     let _ = drbg.random_bytes(&mut buf);
@@ -121,7 +118,7 @@ fn test_aes_ctr_add() {
     let returned_bytes: &[u8] = &hex!(
         "5b2bf7a5c60d8ab6591110cbd61cd387b02de19784f496d1a109123d8b3562a5de2dd6d5d1aef957a6c4f371cecd93c15799d82e34d6a0dba7e915a27d8e65f3"
     );
-    let mut drbg = AesCtr128Drbg::new(entropy, &[]).unwrap();
+    let mut drbg = AesCtr128Drbg::new(entropy, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
     let _ = drbg.random_bytes_extra(&mut buf, add1);
@@ -136,7 +133,7 @@ fn test_aes_ctr_df() {
     let returned_bytes: &[u8] = &hex!(
         "a5514ed7095f64f3d0d3a5760394ab42062f373a25072a6ea6bcfd8489e94af6cf18659fea22ed1ca0a9e33f718b115ee536b12809c31b72b08ddd8be1910fa3"
     );
-    let mut drbg = AesCtr128Drbg::new_with_df(entropy, nonce, &[]).unwrap();
+    let mut drbg = AesCtr128Drbg::new_with_df(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
     let _ = drbg.random_bytes(&mut buf);
@@ -152,7 +149,9 @@ fn test_aes_ctr_df_ps() {
     let returned_bytes: &[u8] = &hex!(
         "35b00df6269b6641fd4ccb354d56d851de7a77527e034d60c9e1a9e1525a30ed361fded89d3dccb978d4e7a9e100ebf63062735b52831c6f0a1d3e1bdc5ebc72"
     );
-    let mut drbg = AesCtr128Drbg::new_with_df(entropy, nonce, personalization_string).unwrap();
+    let mut drbg =
+        AesCtr128Drbg::new_with_df(entropy, nonce, personalization_string, Policy::default())
+            .unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
     let _ = drbg.random_bytes(&mut buf);

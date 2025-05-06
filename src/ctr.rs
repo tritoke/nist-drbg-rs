@@ -1,12 +1,24 @@
-use aes::cipher::BlockEncrypt;
-use aes::cipher::{BlockCipher, KeyInit, generic_array::GenericArray};
+use core::marker::PhantomData;
+
+use aes::cipher::{
+    generic_array::GenericArray,
+    typenum::{U21, U24, U8},
+    BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
+};
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
 
 use crate::arithmetic::increment;
-use crate::{Drbg, SeedError};
+use crate::{Drbg, Policy, PredictionResistance, SeedError};
 
-pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> {
+/// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
+/// when using CTR DRBG and a derivation function
+///
+/// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 3
+pub const CTR_MAX_LENGTH: u64 = 1 << (35 - 3);
+
+pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: usize>
+{
     // key used for block cipher encryption
     key: GenericArray<u8, C::KeySize>,
 
@@ -19,40 +31,108 @@ pub struct CtrDrbg<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize
     // Whether or not to use a derivation function for seeding and reseeding
     derivation_function: bool,
 
-    // Currently unused:
-    // admin bits - not sure about these right now but the standard shows them
-    _prediction_resistance_flag: bool, // is this drbg prediction resistant?
+    // Limits for max calls to generate before reseeding
+    limits: CtrDrbgPolicy<L>,
 }
 
-impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, SEEDLEN> {
-    pub fn new(entropy: &[u8], personalization_string: &[u8]) -> Result<Self, SeedError> {
-        // TODO: Do proper length checks here
-        Self::new_impl(entropy, None, personalization_string)
+// policy specifically for the CtrDrbg, we can use this to enforce limits on a per-DRBG type basis
+struct CtrDrbgPolicy<L: CtrModeLimits> {
+    policy: crate::Policy,
+    _limits: PhantomData<L>,
+}
+
+impl<L: CtrModeLimits> From<crate::Policy> for CtrDrbgPolicy<L> {
+    fn from(policy: crate::Policy) -> Self {
+        Self {
+            policy,
+            _limits: PhantomData,
+        }
+    }
+}
+
+impl<L: CtrModeLimits> CtrDrbgPolicy<L> {
+    fn reseed_limit(&self) -> u64 {
+        // When prediciton resistance is enabled, a reseed is forced after every
+        // call to generate, which is the same as a max-limit of 2 for our code
+        if self.prediction_resistance() == PredictionResistance::Enabled {
+            2
+        } else {
+            self.policy
+                .reseed_limit
+                .unwrap_or(L::DEFAULT_RESEED_INTERVAL)
+                .clamp(2, L::MAX_RESEED_INTERVAL)
+        }
     }
 
+    fn max_output(&self) -> u64 {
+        L::MAX_OUTPUT
+    }
+
+    fn prediction_resistance(&self) -> PredictionResistance {
+        self.policy.prediction_resistance
+    }
+}
+
+impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: usize>
+    CtrDrbg<C, L, SEEDLEN>
+{
+    /// Create a CTR DRBG instance without the use of a derivation function
+    pub fn new(
+        entropy: &[u8],
+        personalization_string: &[u8],
+        policy: Policy,
+    ) -> Result<Self, SeedError> {
+        // Check that the entropy has exactly SEEDLEN
+        if entropy.len() != SEEDLEN {
+            return Err(SeedError::IncorrectLength {
+                expected_size: SEEDLEN as u64,
+                given_size: entropy.len() as u64,
+            });
+        }
+
+        // Check that personalization_string is at most SEEDLEN
+        if personalization_string.len() > SEEDLEN {
+            return Err(SeedError::LengthError {
+                max_size: SEEDLEN as u64,
+                requested_size: personalization_string.len() as u64,
+            });
+        }
+
+        Self::new_impl(entropy, None, personalization_string, policy)
+    }
+
+    /// Create a CTR DRBG instance with the use of a derivation function
     pub fn new_with_df(
         entropy: &[u8],
         nonce: &[u8],
         personalization_string: &[u8],
+        policy: Policy,
     ) -> Result<Self, SeedError> {
-        // TODO: Do proper length checks here
-        Self::new_impl(entropy, Some(nonce), personalization_string)
+        // Check that the entropy has the minimum length required
+        if entropy.len() < block_cipher_security_size::<C>() {
+            return Err(SeedError::InsufficientEntropy);
+        }
+
+        // Check the input lengths are below the maximal bounds
+        for slice in [entropy, personalization_string] {
+            if (slice.len() as u64) > CTR_MAX_LENGTH {
+                return Err(SeedError::LengthError {
+                    max_size: CTR_MAX_LENGTH,
+                    requested_size: slice.len() as u64,
+                });
+            }
+        }
+
+        Self::new_impl(entropy, Some(nonce), personalization_string, policy)
     }
 
     fn new_impl(
         entropy: &[u8],
         nonce: Option<&[u8]>,
         personalization_string: &[u8],
+        policy: Policy,
     ) -> Result<Self, SeedError> {
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
-
-        // Ensure the personalization string is not too long
-        if personalization_string.len() > SEEDLEN {
-            return Err(SeedError::LengthError {
-                max_size: SEEDLEN as u64, // TODO this is really a precise, rather than max issue, different error?
-                requested_size: personalization_string.len() as u64,
-            });
-        }
 
         // When a derivation function is used then the entropy input is
         // seed_material = entropy || nonce || personalization_string
@@ -72,20 +152,17 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // into seed_material
             seed_material[..personalization_string.len()].copy_from_slice(personalization_string);
 
-            // Finally compute
             // seed_material = entropy ^ pad(personalization_string)
             xor_into(&mut seed_material[..], entropy);
         }
 
-        // We now have the processed seed material, which
-        // we now pass into the update function
+        // We now have the processed seed material, which we now pass into the update function
         let mut ctr_drbg = Self {
-            // Default value is zeroed
             key: Default::default(),
             value: Default::default(),
             reseed_counter: 1,
             derivation_function: nonce.is_some(),
-            _prediction_resistance_flag: false,
+            limits: policy.into(),
         };
         ctr_drbg.ctr_drbg_update(&seed_material);
         Ok(ctr_drbg)
@@ -110,7 +187,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             increment(&mut self.value);
 
             // Add an encryption block, note encrypt_block works in-place
-            let mut ct = self.value.clone(); // TODO do i have to clone?
+            let mut ct = self.value.clone();
             cipher.encrypt_block(&mut ct);
 
             // tmp = tmp || Enc_K(V)
@@ -126,7 +203,6 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         // tmp = tmp XOR provided_data
         xor_into(&mut tmp, provided_data);
 
-        // set key as the leftmore and value as the rightmost bytes of tmp
         let key_len = self.key.len();
         self.key.copy_from_slice(&tmp[..key_len]);
         self.value.copy_from_slice(&tmp[key_len..]);
@@ -137,28 +213,46 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         entropy: &[u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        // Whether or not we use a derivation_function, we first populate
-        // seed_material with the user input
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
-
-        // If additional_input is None, use b"" for now...
         let additional_input = additional_input.unwrap_or(b"");
 
-        // When a derivation function is used then the entropy input is
-        // seed_material = entropy || additional_input
-        // which must have length SEEDLEN
+        // If we use a derivation function, then entropy has a minimum
+        // length and seed_material is computed via ctr_drbg_df
         if self.derivation_function {
-            // TODO: can additional_input be empty for this case?
+            // Check that the entropy has the minimum length
+            if entropy.len() < block_cipher_security_size::<C>() {
+                return Err(SeedError::InsufficientEntropy);
+            }
+
+            // Check entropy and additional_input are not too large
+            for slice in [entropy, additional_input] {
+                if (slice.len() as u64) > CTR_MAX_LENGTH {
+                    return Err(SeedError::LengthError {
+                        max_size: CTR_MAX_LENGTH,
+                        requested_size: slice.len() as u64,
+                    });
+                }
+            }
+
             // Compute the seed material from the derivation function and user supplied entropy
             ctr_drbg_df::<C, SEEDLEN>(&[entropy, additional_input], &mut seed_material[..]);
         }
-        // Otherwise seed_material = entropy ^ pad(personalization_string)
+        // Otherwise, seed_material is computed via a XOR with the entropy and strict
+        // length requirements are made.
         else {
-            // Ensure that entropy has length SEEDLEN
+            // Check that the entropy has exactly SEEDLEN
             if entropy.len() != SEEDLEN {
+                return Err(SeedError::IncorrectLength {
+                    expected_size: SEEDLEN as u64,
+                    given_size: entropy.len() as u64,
+                });
+            }
+
+            // Ensure additional_input is not too long
+            if additional_input.len() > SEEDLEN {
                 return Err(SeedError::LengthError {
-                    max_size: SEEDLEN as u64, // TODO this is really a precise, rather than max issue, different error?
-                    requested_size: entropy.len() as u64,
+                    max_size: SEEDLEN as u64,
+                    requested_size: additional_input.len() as u64,
                 });
             }
 
@@ -184,10 +278,19 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
     ) -> Result<(), SeedError> {
-        // TODO: check reseed counter
-        if self.reseed_counter > 99999 {
+        // First check we do not require a reseed per the Drbg policy
+        if self.reseed_counter > self.limits.reseed_limit() {
             return Err(SeedError::CounterExhausted);
         }
+
+        // Now we ensure we're not requesting too many bytes
+        if (buf.len() as u64) > self.limits.max_output() {
+            return Err(SeedError::LengthError {
+                max_size: self.limits.max_output(),
+                requested_size: buf.len() as u64,
+            });
+        }
+
         let mut seed_material: [u8; SEEDLEN] = [0; SEEDLEN];
 
         // Deal with the additional input, if it is not empty
@@ -196,10 +299,22 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
             // When a derivation function is used, the seed material is generated
             // directly from the additional data
             if self.derivation_function {
+                if additional_input.len() as u64 > CTR_MAX_LENGTH {
+                    return Err(SeedError::LengthError {
+                        max_size: CTR_MAX_LENGTH,
+                        requested_size: additional_input.len() as u64,
+                    });
+                }
                 ctr_drbg_df::<C, SEEDLEN>(&[additional_input], &mut seed_material[..]);
             }
             // Otherwise we simply pad the additional input to the length of the seed
             else {
+                if additional_input.len() > SEEDLEN {
+                    return Err(SeedError::LengthError {
+                        max_size: SEEDLEN as u64,
+                        requested_size: additional_input.len() as u64,
+                    });
+                }
                 seed_material[..additional_input.len()].copy_from_slice(additional_input);
             }
             self.ctr_drbg_update(&seed_material);
@@ -242,9 +357,19 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> CtrDrbg<C, S
     }
 }
 
-/// Aux function in 10.3.2
-/// we really want to return this: [u8; C:BlockSize + C:KeySize] or should
-/// we include this into the input like with hash_df
+/// Auxiliary function to determine security strength as per SP 800-57 from
+/// the keysize for hash and hmac based drbg
+fn block_cipher_security_size<C: BlockSizeUser + KeySizeUser>() -> usize {
+    // For AES, the key size is the same as the security size,
+    // For TDEA we have 21 byte keys but only 112 bits of security,
+    // so when TDEA is used (8 byte block size) we return 112 / 8 = 14
+    if C::block_size() == 8 {
+        return 14;
+    }
+    C::key_size()
+}
+
+/// Auxiliary function in Section 10.3.2
 fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     seed_material: &[&[u8]],
     out: &mut [u8],
@@ -293,7 +418,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
         }
     }
 
-    // Now we set the key to the first bytes of out and X to the next block_size bytes
     let key_len = key.len();
     key.copy_from_slice(&out[..key_len]);
     ct.copy_from_slice(&out[key_len..]);
@@ -411,7 +535,9 @@ fn bcc<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     cipher.encrypt_block(out);
 }
 
-impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for CtrDrbg<C, SEEDLEN> {
+impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: usize> Drbg
+    for CtrDrbg<C, L, SEEDLEN>
+{
     #[inline]
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError> {
         self.reseed_core(entropy, None)
@@ -437,15 +563,97 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize> Drbg for Ctr
     }
 }
 
+pub trait CtrModeLimits {
+    /// The recommended number of calls to CTR DRBG before the DRBG must be reseeded
+    const DEFAULT_RESEED_INTERVAL: u64;
+
+    /// The maximum number of calls to CTR DRBG before the DRBG must be reseeded
+    const MAX_RESEED_INTERVAL: u64;
+
+    /// The maximum number of bytes allowed to be generated in a single call
+    const MAX_OUTPUT: u64;
+}
+
+pub struct AesLimits;
+
+impl CtrModeLimits for AesLimits {
+    const DEFAULT_RESEED_INTERVAL: u64 = 10_000;
+    const MAX_RESEED_INTERVAL: u64 = 1 << 48;
+    const MAX_OUTPUT: u64 = 65536;
+}
+
+pub struct TdeaLimits;
+
+impl CtrModeLimits for TdeaLimits {
+    const DEFAULT_RESEED_INTERVAL: u64 = 1000; // what should this be?
+    const MAX_RESEED_INTERVAL: u64 = 1 << 32;
+    const MAX_OUTPUT: u64 = 1024;
+}
+/// A wrapper around des::TdesEde3 which supports a key without parity bits
+pub struct TdesEde3ShortKey(TdesEde3);
+
+/* BlockCipher + KeyInit + BlockEncrypt */
+
+impl BlockSizeUser for TdesEde3ShortKey {
+    type BlockSize = U8;
+}
+
+impl BlockCipher for TdesEde3ShortKey {}
+
+impl KeySizeUser for TdesEde3ShortKey {
+    type KeySize = U21;
+}
+
+impl KeyInit for TdesEde3ShortKey {
+    fn new(key: &digest::Key<Self>) -> Self {
+        let mut wide_key: GenericArray<u8, U24> = GenericArray::default();
+        derive_tdea_key(key, &mut wide_key);
+        Self(TdesEde3::new(&wide_key))
+    }
+}
+
+impl BlockEncrypt for TdesEde3ShortKey {
+    fn encrypt_with_backend(&self, f: impl aes::cipher::BlockClosure<BlockSize = Self::BlockSize>) {
+        self.0.encrypt_with_backend(f);
+    }
+}
+
+/// Auxiliary function to compute and set parity bits of TDEA key
+fn derive_tdea_key(in_key: &GenericArray<u8, U21>, out_key: &mut GenericArray<u8, U24>) {
+    derive_des_key(&mut out_key[..8], &in_key[..7]);
+    derive_des_key(&mut out_key[8..16], &in_key[7..14]);
+    derive_des_key(&mut out_key[16..24], &in_key[14..21]);
+}
+
+/// Auxiliary function to compute and set parity bits of DES key
+fn derive_des_key(out_key: &mut [u8], in_key: &[u8]) {
+    // First set key as a u64 to extract out 7-bit chunks
+    let mut k = u64::from_be_bytes([
+        0, in_key[0], in_key[1], in_key[2], in_key[3], in_key[4], in_key[5], in_key[6],
+    ]);
+
+    // ensure key bits are always in the top 7 bits of the lowest byte as we shift
+    k <<= 1;
+
+    // Set the 8 bytes of the out key with 7-bits from the key and one
+    // parity bit
+    for i in 0..8 {
+        let key_byte = k as u8;
+        k >>= 7;
+        let parity_bit = (key_byte.count_ones() & 1) as u8;
+        out_key[7 - i] = parity_bit | (key_byte & !1);
+    }
+}
+
 // SEEDLEN = BlockSize + KeySize
 #[cfg(feature = "tdea-ctr")]
-pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3, { 21 + 8 }>;
+pub type TdeaCtrDrbg = super::CtrDrbg<TdesEde3ShortKey, TdeaLimits, { 21 + 8 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr128Drbg = super::CtrDrbg<Aes128, { 16 + 16 }>;
+pub type AesCtr128Drbg = super::CtrDrbg<Aes128, AesLimits, { 16 + 16 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr192Drbg = super::CtrDrbg<Aes192, { 24 + 16 }>;
+pub type AesCtr192Drbg = super::CtrDrbg<Aes192, AesLimits, { 24 + 16 }>;
 
 #[cfg(feature = "aes-ctr")]
-pub type AesCtr256Drbg = super::CtrDrbg<Aes256, { 32 + 16 }>;
+pub type AesCtr256Drbg = super::CtrDrbg<Aes256, AesLimits, { 32 + 16 }>;
