@@ -275,7 +275,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
         Ok(())
     }
 
-    fn random_bytes_core(
+    fn generate_core(
         &mut self,
         buf: &mut [u8],
         additional_input: Option<&[u8]>,
@@ -544,22 +544,22 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
     }
 
     #[inline]
-    fn reseed_extra(&mut self, entropy: &[u8], additional_input: &[u8]) -> Result<(), SeedError> {
+    fn reseed_ctx(&mut self, entropy: &[u8], additional_input: &[u8]) -> Result<(), SeedError> {
         self.reseed_core(entropy, Some(additional_input))
     }
 
     #[inline]
-    fn random_bytes(&mut self, buf: &mut [u8]) -> Result<(), SeedError> {
-        self.random_bytes_core(buf, None)
+    fn generate(&mut self, buf: &mut [u8]) -> Result<(), SeedError> {
+        self.generate_core(buf, None)
     }
 
     #[inline]
-    fn random_bytes_extra(
+    fn generate_ctx(
         &mut self,
         buf: &mut [u8],
         additional_input: &[u8],
     ) -> Result<(), crate::SeedError> {
-        self.random_bytes_core(buf, Some(additional_input))
+        self.generate_core(buf, Some(additional_input))
     }
 }
 

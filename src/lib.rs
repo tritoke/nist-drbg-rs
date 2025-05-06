@@ -81,14 +81,10 @@ fn hash_security_size<H: OutputSizeUser>() -> usize {
 
 pub trait Drbg {
     fn reseed(&mut self, entropy: &[u8]) -> Result<(), SeedError>;
-    fn reseed_extra(&mut self, entropy: &[u8], additional_input: &[u8]) -> Result<(), SeedError>;
+    fn reseed_ctx(&mut self, entropy: &[u8], additional_input: &[u8]) -> Result<(), SeedError>;
 
-    fn random_bytes(&mut self, buf: &mut [u8]) -> Result<(), SeedError>;
-    fn random_bytes_extra(
-        &mut self,
-        buf: &mut [u8],
-        additional_input: &[u8],
-    ) -> Result<(), SeedError>;
+    fn generate(&mut self, buf: &mut [u8]) -> Result<(), SeedError>;
+    fn generate_ctx(&mut self, buf: &mut [u8], additional_input: &[u8]) -> Result<(), SeedError>;
 }
 
 // Top level policy object, holds all the limits we want to allow configuration of

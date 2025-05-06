@@ -371,7 +371,7 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
 
     // For pr_false we reseed before requesting any bytes at all
     if reseed {
-        drbg.reseed_extra(
+        drbg.reseed_ctx(
             &question.entropy_input_reseed,
             &question.additional_input_reseed,
         )
@@ -382,22 +382,22 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
     // and not the generation
     if info.prediction_resistance {
         // Request the first chunk of bytes
-        drbg.reseed_extra(&question.entropy_input_pr_1, &question.additional_input_1)
+        drbg.reseed_ctx(&question.entropy_input_pr_1, &question.additional_input_1)
             .unwrap();
-        drbg.random_bytes(&mut generated_bytes).unwrap();
+        drbg.generate(&mut generated_bytes).unwrap();
 
         // Request the second chunk of bytes
-        drbg.reseed_extra(&question.entropy_input_pr_2, &question.additional_input_2)
+        drbg.reseed_ctx(&question.entropy_input_pr_2, &question.additional_input_2)
             .unwrap();
-        drbg.random_bytes(&mut generated_bytes).unwrap();
+        drbg.generate(&mut generated_bytes).unwrap();
     }
     // For all other cases, additional bytes are used in the reseeding itself
     else {
         // Request the first chunk of bytes
-        drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_1)
+        drbg.generate_ctx(&mut generated_bytes, &question.additional_input_1)
             .unwrap();
         // Request the second chunk of bytes
-        drbg.random_bytes_extra(&mut generated_bytes, &question.additional_input_2)
+        drbg.generate_ctx(&mut generated_bytes, &question.additional_input_2)
             .unwrap();
     }
 
