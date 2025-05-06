@@ -1,4 +1,4 @@
-/// Compute the (a + b + c) where a, b < 256 and c = 0 or 1
+/// Compute a + b + c where a, b < 256 and c = 0 or 1
 /// The max value is 2*255 + 1 = 256 + 255 which can be represented
 /// as a u8 with one additional bit to detect if there was an overflow
 #[inline]
