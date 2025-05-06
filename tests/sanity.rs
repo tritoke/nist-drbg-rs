@@ -13,8 +13,8 @@ fn test_hash() {
     let mut drbg = Sha1Drbg::new(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 80] = [0; 80];
-    let _ = drbg.random_bytes(&mut buf);
-    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.generate(&mut buf);
+    let _ = drbg.generate(&mut buf);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -30,8 +30,8 @@ fn test_hash_add() {
     let mut drbg = Sha1Drbg::new(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 80] = [0; 80];
-    let _ = drbg.random_bytes_extra(&mut buf, add1);
-    let _ = drbg.random_bytes_extra(&mut buf, add2);
+    let _ = drbg.generate_ctx(&mut buf, add1);
+    let _ = drbg.generate_ctx(&mut buf, add2);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -45,8 +45,8 @@ fn test_hmac() {
     let mut drbg = HmacSha1Drbg::new(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 80] = [0; 80];
-    let _ = drbg.random_bytes(&mut buf);
-    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.generate(&mut buf);
+    let _ = drbg.generate(&mut buf);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -62,8 +62,8 @@ fn test_hmac_add() {
     let mut drbg = HmacSha1Drbg::new(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 80] = [0; 80];
-    let _ = drbg.random_bytes_extra(&mut buf, add1);
-    let _ = drbg.random_bytes_extra(&mut buf, add2);
+    let _ = drbg.generate_ctx(&mut buf, add1);
+    let _ = drbg.generate_ctx(&mut buf, add2);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -76,8 +76,8 @@ fn test_tdea_ctr() {
     let mut drbg = TdeaCtrDrbg::new(entropy, nonce, Policy::default()).unwrap();
 
     let mut buf: [u8; 32] = [0; 32];
-    let _ = drbg.random_bytes(&mut buf);
-    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.generate(&mut buf);
+    let _ = drbg.generate(&mut buf);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -91,8 +91,8 @@ fn test_tdea_ctr_add() {
     let mut drbg = TdeaCtrDrbg::new(entropy, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 32] = [0; 32];
-    let _ = drbg.random_bytes_extra(&mut buf, add1);
-    let _ = drbg.random_bytes_extra(&mut buf, add2);
+    let _ = drbg.generate_ctx(&mut buf, add1);
+    let _ = drbg.generate_ctx(&mut buf, add2);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -105,8 +105,8 @@ fn test_aes_ctr() {
     let mut drbg = AesCtr128Drbg::new(entropy, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
-    let _ = drbg.random_bytes(&mut buf);
-    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.generate(&mut buf);
+    let _ = drbg.generate(&mut buf);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -121,8 +121,8 @@ fn test_aes_ctr_add() {
     let mut drbg = AesCtr128Drbg::new(entropy, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
-    let _ = drbg.random_bytes_extra(&mut buf, add1);
-    let _ = drbg.random_bytes_extra(&mut buf, add2);
+    let _ = drbg.generate_ctx(&mut buf, add1);
+    let _ = drbg.generate_ctx(&mut buf, add2);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -136,8 +136,8 @@ fn test_aes_ctr_df() {
     let mut drbg = AesCtr128Drbg::new_with_df(entropy, nonce, &[], Policy::default()).unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
-    let _ = drbg.random_bytes(&mut buf);
-    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.generate(&mut buf);
+    let _ = drbg.generate(&mut buf);
     assert_eq!(buf, returned_bytes);
 }
 
@@ -154,7 +154,7 @@ fn test_aes_ctr_df_ps() {
             .unwrap();
 
     let mut buf: [u8; 64] = [0; 64];
-    let _ = drbg.random_bytes(&mut buf);
-    let _ = drbg.random_bytes(&mut buf);
+    let _ = drbg.generate(&mut buf);
+    let _ = drbg.generate(&mut buf);
     assert_eq!(buf, returned_bytes);
 }
