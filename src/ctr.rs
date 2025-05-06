@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
 use aes::cipher::{
-    generic_array::GenericArray,
-    typenum::{U21, U24, U8},
     BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
+    generic_array::GenericArray,
+    typenum::{U8, U21, U24},
 };
 use aes::{Aes128, Aes192, Aes256};
 use des::TdesEde3;
@@ -179,9 +179,11 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
         let block_len = C::block_size();
         let m = SEEDLEN.div_ceil(block_len);
         for i in 0..m {
-            // TODO: here we assume ctr_len = block_len
-            // if we allow ctr_len within the range 4 <= ctr_ln <= block_len
-            // we need to adjust the increment below.
+            // TODO: Issue #3
+            // Here we assume ctr_len = block_len, however in the NIST document
+            // ctr_len is allowed to be any value within the range 4 <= ctr_ln <= block_len
+            // If this change is implemented, then the increment below will need to be
+            // generalised to accomodate this change.
 
             // V = V + 1 mod 2^block_len
             increment(&mut self.value);
@@ -328,15 +330,17 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
         let bufsz = buf.len();
         let m = bufsz.div_ceil(block_len);
         for i in 0..m {
-            // TODO: here we assume ctr_len = block_len
-            // if we allow ctr_len within the range 4 <= ctr_ln <= block_len
-            // we need to adjust the increment below.
+            // TODO: Issue #3 (as above)
+            // Here we assume ctr_len = block_len, however in the NIST document
+            // ctr_len is allowed to be any value within the range 4 <= ctr_ln <= block_len
+            // If this change is implemented, then the increment below will need to be
+            // generalised to accomodate this change.
 
             // V = V + 1 mod 2^block_len
             increment(&mut self.value);
 
             // Add an encryption block, note encrypt_block works in-place
-            let mut ct = self.value.clone(); // TODO do i have to clone?
+            let mut ct = self.value.clone();
             cipher.encrypt_block(&mut ct);
 
             // buf = buf || Enc_K(V)
@@ -374,10 +378,6 @@ fn ctr_drbg_df<C: BlockCipher + KeyInit + BlockEncrypt, const SEEDLEN: usize>(
     seed_material: &[&[u8]],
     out: &mut [u8],
 ) {
-    // TODO: max len of out should be 512 bits
-    // In reality out is always length SEEDLEN
-    assert!(out.len() == SEEDLEN);
-
     /*
      * This first block of code is to make: S = L || N || input || 0x80 || 0x00 ... 0x00
      * however, we don't know the length of the input at compile time, so instead of allocating
