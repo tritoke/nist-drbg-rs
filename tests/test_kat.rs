@@ -351,7 +351,7 @@ fn perform_kat_test(question: &Question, info: &TestInformation, reseed: bool, n
         passed &= question.additional_input_reseed.len() * 8 == info.additional_input_len;
     }
 
-    // When prediciton resistance is required we have two other entropy inputs
+    // When prediction resistance is required we have two other entropy inputs
     if info.prediction_resistance {
         passed &= question.entropy_input_pr_1.len() * 8 == info.entropy_input_len;
         passed &= question.entropy_input_pr_2.len() * 8 == info.entropy_input_len;

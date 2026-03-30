@@ -11,7 +11,7 @@ use des::TdesEde3;
 use crate::arithmetic::increment;
 use crate::{Drbg, Policy, PredictionResistance, SeedError};
 
-/// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
+/// What is the maximum length allowed for the entropy input, additional data and personalization string (in bytes)
 /// when using CTR DRBG and a derivation function
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 3
@@ -52,7 +52,7 @@ impl<L: CtrModeLimits> From<crate::Policy> for CtrDrbgPolicy<L> {
 
 impl<L: CtrModeLimits> CtrDrbgPolicy<L> {
     fn reseed_limit(&self) -> u64 {
-        // When prediciton resistance is enabled, a reseed is forced after every
+        // When prediction resistance is enabled, a reseed is forced after every
         // call to generate, which is the same as a max-limit of 2 for our code
         if self.prediction_resistance() == PredictionResistance::Enabled {
             2
@@ -183,7 +183,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
             // Here we assume ctr_len = block_len, however in the NIST document
             // ctr_len is allowed to be any value within the range 4 <= ctr_ln <= block_len
             // If this change is implemented, then the increment below will need to be
-            // generalised to accomodate this change.
+            // generalized to accommodate this change.
 
             // V = V + 1 mod 2^block_len
             increment(&mut self.value);
@@ -334,7 +334,7 @@ impl<C: BlockCipher + KeyInit + BlockEncrypt, L: CtrModeLimits, const SEEDLEN: u
             // Here we assume ctr_len = block_len, however in the NIST document
             // ctr_len is allowed to be any value within the range 4 <= ctr_ln <= block_len
             // If this change is implemented, then the increment below will need to be
-            // generalised to accomodate this change.
+            // generalized to accommodate this change.
 
             // V = V + 1 mod 2^block_len
             increment(&mut self.value);

@@ -4,7 +4,7 @@ use digest::{Digest, OutputSizeUser};
 use crate::arithmetic::{add_into, increment};
 use crate::{Drbg, Policy, PredictionResistance, SeedError, hash_security_size};
 
-/// What is the maximum length allowed for the entropy input, additional data and personalisation string (in bytes)
+/// What is the maximum length allowed for the entropy input, additional data and personalization string (in bytes)
 ///
 /// From [NIST SP 800-90A Rev. 1](https://csrc.nist.gov/pubs/sp/800/90/a/r1/final) table 2
 pub const HASH_MAX_LENGTH: u64 = 1 << (35 - 3);
@@ -53,7 +53,7 @@ impl From<crate::Policy> for HashDrbgPolicy {
 
 impl HashDrbgPolicy {
     fn reseed_limit(&self) -> u64 {
-        // When prediciton resistance is enabled, a reseed is forced after every
+        // When prediction resistance is enabled, a reseed is forced after every
         // call to generate, which is the same as a max-limit of 2 for our code
         if self.prediction_resistance() == PredictionResistance::Enabled {
             return 2;

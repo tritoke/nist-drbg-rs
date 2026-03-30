@@ -5,7 +5,7 @@ use digest::OutputSizeUser;
 
 // Should we feature lock this? We don't need it for Hmac, but will for Hash
 // and CTR
-pub mod arithmetic;
+pub(crate) mod arithmetic;
 
 #[cfg(any(feature = "sha1", feature = "sha2"))]
 pub mod hash;
@@ -19,10 +19,10 @@ pub mod hmac;
 #[cfg(any(feature = "hmac-sha1", feature = "hmac-sha2"))]
 pub use hmac::*;
 
-#[cfg(feature = "aes-ctr")]
+#[cfg(any(feature = "aes-ctr", feature = "tdea-ctr"))]
 pub mod ctr;
 
-#[cfg(feature = "aes-ctr")]
+#[cfg(any(feature = "aes-ctr", feature = "tdea-ctr"))]
 pub use ctr::*;
 
 #[derive(Debug)]
@@ -30,7 +30,6 @@ pub enum SeedError {
     InsufficientEntropy,
     LengthError { max_size: u64, requested_size: u64 },
     IncorrectLength { expected_size: u64, given_size: u64 },
-    EmptyNonce,
     CounterExhausted,
 }
 
@@ -58,8 +57,7 @@ impl Display for SeedError {
                     "Requested size of {given_size} bytes is not equal to {expected_size} bytes"
                 )
             }
-            SeedError::EmptyNonce => f.write_str("Nonce must not be empty"),
-            SeedError::CounterExhausted => f.write_str("Counter has been exhaused, reseed"),
+            SeedError::CounterExhausted => f.write_str("Counter has been exhausted, reseed"),
         }
     }
 }
