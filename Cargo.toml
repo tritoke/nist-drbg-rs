@@ -1,6 +1,6 @@
 [package]
 name = "nist-drbg-rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 keywords = ["drbg", "csprng", "nist"]
@@ -10,7 +10,7 @@ authors = [
     "Giacomo Pope <giacomopope@gmail.com>",
 ]
 description = "Implementation of NIST SP 800-90A Rev. 1 for Deterministic Random Bit Generators"
-docuentation = "https://docs.rs/nist-drbg-rs/0.1.0/nist_drbg_rs"
+documentation = "https://docs.rs/nist-drbg-rs/0.1.0/nist_drbg_rs"
 readme = "README.md"
 homepage = "https://github.com/tritoke/nist-drbg-rs"
 repository = "https://github.com/tritoke/nist-drbg-rs"
