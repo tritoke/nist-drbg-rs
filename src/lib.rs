@@ -23,7 +23,7 @@
 //! let nonce = [0u8; 16];
 //! let personalization_string = b"";
 //!
-//! let mut drbg = HmacSha256Drbg::new(&entropy, &nonce, &personalization_string, Policy::default())
+//! let mut drbg = HmacSha256Drbg::new(&entropy, &nonce, personalization_string, Policy::default())
 //!     .expect("sufficient entropy provided");
 //!
 //! let mut output = [0u8; 64];
