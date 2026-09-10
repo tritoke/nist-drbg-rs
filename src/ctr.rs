@@ -41,6 +41,37 @@ struct CtrDrbgPolicy<L: CtrModeLimits> {
     _limits: PhantomData<L>,
 }
 
+impl<C, L, const SEEDLEN: usize> rand_core::TryRngCore for CtrDrbg<C, L, SEEDLEN>
+where
+    C: BlockCipher + KeyInit + BlockEncrypt,
+    L: CtrModeLimits,
+{
+    type Error = SeedError;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        let mut bytes = [0; 4];
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        let mut bytes = [0; 8];
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        self.generate(dst)
+    }
+}
+
+impl<C, L, const SEEDLEN: usize> rand_core::TryCryptoRng for CtrDrbg<C, L, SEEDLEN>
+where
+    C: BlockCipher + KeyInit + BlockEncrypt,
+    L: CtrModeLimits,
+{
+}
+
 impl<L: CtrModeLimits> From<crate::Policy> for CtrDrbgPolicy<L> {
     fn from(policy: crate::Policy) -> Self {
         Self {
